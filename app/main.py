@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from app.routes import auth, movies #recommendations
 import os
 
 # Load environment variables
@@ -24,11 +25,13 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth.router)
 
 # Health check endpoint
 @app.get("/")
@@ -38,11 +41,17 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs"
     }
-# Import routes (will add later)
-# from app.routes import auth, movies, recommendations
 
-# app.include_router(auth.router)
-# app.include_router(movies.router)
+# Import routes (will add later)
+
+# from app.routes import movies, recommendations
+
+# Authentication Routes
+app.include_router(auth.router)
+
+# Movie Routes
+app.include_router(movies.router)
+
 # app.include_router(recommendations.router)
 if __name__ == "__main__":
     import uvicorn
