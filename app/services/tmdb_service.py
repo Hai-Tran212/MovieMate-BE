@@ -54,3 +54,18 @@ class TMDBService:
     @classmethod
     def get_top_rated(cls, page: int = 1) -> Dict:
         return cls._make_request("/movie/top_rated", {'page': page})
+
+    # Advanced Search: Discover movies with filters
+    @classmethod
+    def discover_movies(cls, params: Dict) -> Dict:
+        """
+        Discover movies with advanced filters
+        Supports: genre, year, rating, sort, etc.
+        """
+        return cls._make_request("/discover/movie", params)
+
+    # Get all available movie genres
+    @classmethod
+    def get_genres(cls) -> Dict:
+        """Get list of all movie genres from TMDB"""
+        return cls._make_request("/genre/movie/list")
