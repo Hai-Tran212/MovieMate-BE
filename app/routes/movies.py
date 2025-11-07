@@ -1,13 +1,107 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from app.services.tmdb_service import TMDBService
+from app.schemas.search import (
+    AdvancedSearchSchema,
+    SimpleSearchSchema,
+    GenreFilterSchema,
+    TrendingFilterSchema,
+    MovieListResponse,
+    GenreListResponse
+)
+from typing import Optional
 
 router = APIRouter(prefix="/api/movies", tags=["Movies"])
 
-# Movie Routes
-@router.get("/search")
-def search_movies(query: str = Query(..., min_length=1), page: int = Query(1, ge=1)):
-    """Search movies by title"""
-    return TMDBService.search_movies(query, page)
+
+# ============================================
+# Advanced Search & Discovery
+# ============================================
+
+@router.get("/discover", response_model=MovieListResponse)
+def discover_movies(
+    genre: Optional[str] = Query(None, description="Genre IDs (comma-separated)"),
+    year: Optional[int] = Query(None, ge=1900, le=2030, description="Release year"),
+    min_rating: Optional[float] = Query(None, ge=0, le=10, description="Minimum rating"),
+    max_rating: Optional[float] = Query(None, ge=0, le=10, description="Maximum rating"),
+    min_runtime: Optional[int] = Query(None, ge=0, le=500, description="Minimum runtime (minutes)"),
+    max_runtime: Optional[int] = Query(None, ge=0, le=500, description="Maximum runtime (minutes)"),
+    sort_by: str = Query("popularity.desc", description="Sort option"),
+    language: Optional[str] = Query(None, max_length=5, description="Language code (e.g., 'en')"),
+    region: Optional[str] = Query(None, max_length=2, description="Region code (e.g., 'US')"),
+    page: int = Query(1, ge=1, le=500, description="Page number")
+):
+    """
+    Advanced movie discovery with multiple filters
+    
+    **Extensible Design**: Easy to add new filters
+    
+    **Current Filters**:
+    - genre: Filter by genre IDs (e.g., "28,12" for Action+Adventure)
+    - year: Filter by release year
+    - min_rating/max_rating: Filter by rating range (0-10)
+    - min_runtime/max_runtime: Filter by runtime range (minutes)
+    - sort_by: Sort results (popularity.desc, vote_average.desc, etc.)
+    - language: Filter by original language
+    - region: Filter by region
+    
+    **Future Filters** (ready to add):
+    - exclude_watchlist: Exclude movies in user's watchlist (requires auth)
+    - exclude_rated: Exclude movies user has rated (requires auth)
+    - mood: Filter by mood tags (requires mood-based recommendation feature)
+    - decade: Filter by decade (e.g., "1980s")
+    """
+    # Create schema instance for validation
+    search_params = AdvancedSearchSchema(
+        genre=genre,
+        year=year,
+        min_rating=min_rating,
+        max_rating=max_rating,
+        min_runtime=min_runtime,
+        max_runtime=max_runtime,
+        sort_by=sort_by,
+        language=language,
+        region=region,
+        page=page
+    )
+    
+    # Convert to TMDB parameters
+    tmdb_params = search_params.to_tmdb_params()
+    
+    # Call TMDB API
+    result = TMDBService.discover_movies(tmdb_params)
+    return result
+
+
+@router.get("/genres", response_model=GenreListResponse)
+def get_genres():
+    """
+    Get list of all available movie genres
+    
+    Used for:
+    - Filter dropdowns
+    - Genre browsing pages
+    - Genre-based recommendations
+    """
+    return TMDBService.get_genres()
+
+
+# ============================================
+# Simple Search
+# ============================================
+
+@router.get("/search", response_model=MovieListResponse)
+def search_movies(
+    query: str = Query(..., min_length=1, max_length=200, description="Search query"),
+    page: int = Query(1, ge=1, description="Page number")
+):
+    """
+    Simple text search for movies
+    
+    Used for: Basic search bar functionality
+    """
+    # Validate with schema (XSS protection)
+    search_params = SimpleSearchSchema(query=query, page=page)
+    return TMDBService.search_movies(search_params.query, search_params.page)
 
 # Trending, Popular, Now Playing, Top Rated, Movie Details
 @router.get("/trending/{time_window}")
