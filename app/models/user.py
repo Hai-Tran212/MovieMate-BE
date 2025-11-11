@@ -14,7 +14,10 @@ class User(Base):
     email_verified = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
+    
     # Relationships
     watchlist_items = relationship("Watchlist", back_populates="user", cascade="all, delete-orphan")
     custom_lists = relationship("CustomList", back_populates="user", cascade="all, delete-orphan")
+    ratings = relationship("Rating", back_populates="user", cascade="all, delete-orphan")
+    reviews = relationship("Review", back_populates="user", cascade="all, delete-orphan")
+    preferences = relationship("UserPref", back_populates="user", uselist=False, cascade="all, delete-orphan")

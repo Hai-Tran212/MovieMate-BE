@@ -2,8 +2,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from dotenv import load_dotenv
-from app.routes import auth, movies, watchlist #recommendations
-# from app.middleware.security import SecurityHeadersMiddleware # Tạm thời comment dòng này
+from app.routes import auth, movies, watchlist, recommendations, similar_movies
+from app.middleware.security import SecurityHeadersMiddleware
 import os
 import logging
 
@@ -112,10 +112,11 @@ app.include_router(auth.router)
 app.include_router(movies.router)
 app.include_router(watchlist.router)
 app.include_router(watchlist.custom_list_router)
+app.include_router(similar_movies.router)  # Real-time similar movies (no cache)
+app.include_router(recommendations.router)  # Personalized recommendations (with cache)
 
 # Future routes (uncomment when ready)
-# from app.routes import recommendations, ratings, reviews
-# app.include_router(recommendations.router)
+# from app.routes import ratings, reviews
 # app.include_router(ratings.router)
 # app.include_router(reviews.router)
 
