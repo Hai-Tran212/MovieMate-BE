@@ -6,7 +6,8 @@ from app.schemas.search import (
     GenreFilterSchema,
     TrendingFilterSchema,
     MovieListResponse,
-    GenreListResponse
+    GenreListResponse,
+    SortOption
 )
 from typing import Optional
 
@@ -25,7 +26,7 @@ def discover_movies(
     max_rating: Optional[float] = Query(None, ge=0, le=10, description="Maximum rating"),
     min_runtime: Optional[int] = Query(None, ge=0, le=500, description="Minimum runtime (minutes)"),
     max_runtime: Optional[int] = Query(None, ge=0, le=500, description="Maximum runtime (minutes)"),
-    sort_by: str = Query("popularity.desc", description="Sort option"),
+    sort_by: SortOption = Query(SortOption.POPULARITY_DESC, description="Sort option"),
     language: Optional[str] = Query(None, max_length=5, description="Language code (e.g., 'en')"),
     region: Optional[str] = Query(None, max_length=2, description="Region code (e.g., 'US')"),
     page: int = Query(1, ge=1, le=500, description="Page number")
@@ -84,7 +85,6 @@ def get_genres():
     """
     return TMDBService.get_genres()
 
-
 # ============================================
 # Simple Search
 # ============================================
@@ -99,36 +99,63 @@ def search_movies(
     
     Used for: Basic search bar functionality
     """
-    # Validate with schema (XSS protection)
-    search_params = SimpleSearchSchema(query=query, page=page)
-    return TMDBService.search_movies(search_params.query, search_params.page)
+    
+    # TẠM THỜI BYPASS SCHEMA ĐỂ KIỂM TRA
+    # search_params = SimpleSearchSchema(query=query, page=page)
+    # return TMDBService.search_movies(search_params.query, search_params.page)
 
-# Trending, Popular, Now Playing, Top Rated, Movie Details
+    # DÙNG LẠI CODE GỐC:
+    return TMDBService.search_movies(query, page)
+# # ============================================
+# # Simple Search
+# # ============================================
+
+# @router.get("/search", response_model=MovieListResponse)
+# def search_movies(
+#     query: str = Query(..., min_length=1, max_length=200, description="Search query"),
+#     page: int = Query(1, ge=1, description="Page number")
+# ):
+#     """
+#     Simple text search for movies
+    
+#     Used for: Basic search bar functionality
+#     """
+#     # Validate with schema (XSS protection)
+#     search_params = SimpleSearchSchema(query=query, page=page)
+#     return TMDBService.search_movies(search_params.query, search_params.page)
+
+
+
+# ============================================
+# Trending, Popular, Now Playing, Top Rated
+# ============================================
+
 @router.get("/trending/{time_window}")
 def get_trending(time_window: str, page: int = Query(1, ge=1)):
     """Get trending movies (day/week)"""
     return TMDBService.get_trending(time_window, page)
 
-# Popular Movies
 @router.get("/popular")
 def get_popular(page: int = Query(1, ge=1)):
     """Get popular movies"""
     return TMDBService.get_popular(page)
 
-# Now Playing Movies
 @router.get("/now-playing")
 def get_now_playing(page: int = Query(1, ge=1)):
     """Get now playing movies"""
     return TMDBService.get_now_playing(page)
 
-# Top Rated Movies
 @router.get("/top-rated")
 def get_top_rated(page: int = Query(1, ge=1)):
     """Get top rated movies"""
     return TMDBService.get_top_rated(page)
 
-# Movie Details
+
+# ============================================
+# Movie Details (MUST be last - dynamic route)
+# ============================================
+
 @router.get("/{movie_id}")
 def get_movie_details(movie_id: int):
-    """Get movie details"""
+    """Get movie details by ID - MUST be defined last to avoid path conflicts"""
     return TMDBService.get_movie_details(movie_id)
