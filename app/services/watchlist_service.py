@@ -93,7 +93,10 @@ class WatchlistService:
             else:
                 item.watched_at = None  # type: ignore
 
-        if update_data.rating is not None:
+        # Handle rating update - check if rating field was provided in request
+        # This allows setting rating to None (remove rating)
+        update_dict = update_data.model_dump(exclude_unset=True)
+        if 'rating' in update_dict:
             item.rating = update_data.rating  # type: ignore
 
         if update_data.notes is not None:
@@ -111,13 +114,17 @@ class WatchlistService:
         db.commit()
 
     @staticmethod
-    def check_in_watchlist(db: Session, user_id: int, movie_id: int) -> bool:
-        """Check if a movie is in user's watchlist"""
-        exists = db.query(Watchlist).filter(
+    def check_in_watchlist(db: Session, user_id: int, movie_id: int) -> dict:
+        """Check if a movie is in user's watchlist and return item_id if exists"""
+        item = db.query(Watchlist).filter(
             Watchlist.user_id == user_id,
             Watchlist.movie_id == movie_id
         ).first()
-        return exists is not None
+        
+        if item:
+            return {"in_watchlist": True, "item_id": item.id}
+        else:
+            return {"in_watchlist": False, "item_id": None}
 
     @staticmethod
     def get_watchlist_stats(db: Session, user_id: int) -> WatchlistStats:
