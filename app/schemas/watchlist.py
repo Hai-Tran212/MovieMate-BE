@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from typing import Optional, List
 
@@ -14,8 +14,15 @@ class WatchlistAdd(BaseModel):
 class WatchlistUpdate(BaseModel):
     """Schema for updating watchlist item"""
     watched: Optional[bool] = Field(None, description="Mark as watched/unwatched")
-    rating: Optional[int] = Field(None, ge=1, le=10, description="Rating 1-10")
+    rating: Optional[int] = Field(None, description="Rating 1-10, or null to remove rating")
     notes: Optional[str] = Field(None, max_length=500, description="Personal notes")
+    
+    @validator('rating')
+    def validate_rating(cls, v):
+        """Validate rating is between 1-10 or None"""
+        if v is not None and (v < 1 or v > 10):
+            raise ValueError('Rating must be between 1 and 10, or null to remove')
+        return v
 
 
 class WatchlistResponse(BaseModel):

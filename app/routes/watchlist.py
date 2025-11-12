@@ -88,10 +88,17 @@ def check_in_watchlist(
     """
     Check if a movie is in user's watchlist
     
-    - **movie_id**: TMDB movie ID
+    Returns:
+    - in_watchlist: boolean
+    - item_id: watchlist item ID if exists, null otherwise
+    - movie_id: TMDB movie ID
     """
-    in_watchlist = WatchlistService.check_in_watchlist(db, get_user_id(current_user), movie_id)
-    return {"movie_id": movie_id, "in_watchlist": in_watchlist}
+    result = WatchlistService.check_in_watchlist(db, get_user_id(current_user), movie_id)
+    return {
+        "movie_id": movie_id, 
+        "in_watchlist": result["in_watchlist"],
+        "item_id": result["item_id"]
+    }
 
 
 @router.get("/{item_id}", response_model=WatchlistResponse)
