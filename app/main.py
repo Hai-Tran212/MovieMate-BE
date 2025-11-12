@@ -1,9 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from dotenv import load_dotenv
-from app.routes import auth, movies #recommendations
-from app.middleware.security import SecurityHeadersMiddleware
+from app.routes import auth, movies, watchlist #recommendations
+# from app.middleware.security import SecurityHeadersMiddleware # Tạm thời comment dòng này
 import os
 import logging
 
@@ -45,8 +45,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Security Headers - XSS, Clickjacking, CSP protection
-app.add_middleware(SecurityHeadersMiddleware)
+# Security Headers - FIX CHO SWAGGER UI
+# Thay vì dùng SecurityHeadersMiddleware từ file ngoài, ta định nghĩa trực tiếp ở đây
+# để kiểm soát Content-Security-Policy cho phép Swagger tải CDN.
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+
+    # XSS Protection & Clickjacking
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+
+    # Content Security Policy (CSP) - Đã nới lỏng cho Swagger UI & Youtube
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        # Cho phép script từ chính nó, youtube (trailer), và cdn của swagger
+        "script-src 'self' 'unsafe-inline' https://www.youtube.com https://cdn.jsdelivr.net; "
+        # Cho phép style từ cdn swagger và google fonts
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+        # Cho phép ảnh từ tmdb, fastapi logo, và data: (base64 images)
+        "img-src 'self' https://image.tmdb.org https://fastapi.tiangolo.com data:; "
+        # Cho phép font từ google fonts
+        "font-src 'self' https://fonts.gstatic.com; "
+        # Cho phép embed youtube
+        "frame-src https://www.youtube.com;"
+    )
+
+    return response
 
 # Trusted Hosts - Production only
 if os.getenv("ENVIRONMENT") == "production":
@@ -84,11 +110,12 @@ async def health_check():
 # Core routes
 app.include_router(auth.router)
 app.include_router(movies.router)
+app.include_router(watchlist.router)
+app.include_router(watchlist.custom_list_router)
 
 # Future routes (uncomment when ready)
-# from app.routes import recommendations, watchlist, ratings, reviews
+# from app.routes import recommendations, ratings, reviews
 # app.include_router(recommendations.router)
-# app.include_router(watchlist.router)
 # app.include_router(ratings.router)
 # app.include_router(reviews.router)
 
