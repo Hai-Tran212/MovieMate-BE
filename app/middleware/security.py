@@ -8,7 +8,7 @@ import secrets
 import time
 from typing import Dict, Tuple
 import logging
-
+import os
 logger = logging.getLogger(__name__)
 
 
@@ -26,15 +26,28 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # HSTS
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         
-        # Content Security Policy
-        csp_directives = [
-            "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' https://www.youtube.com",
-            "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' https://image.tmdb.org data:",
-            "frame-src https://www.youtube.com",
-            "connect-src 'self' https://api.themoviedb.org"
-        ]
+        is_dev = os.getenv("ENVIRONMENT", "development") != "production"
+
+        if is_dev and request.url.path.startswith("/docs"):
+            # Allow Swagger UI CDN resources
+            csp_directives = [
+                "default-src 'self' data: blob:;",
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net;",
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;",
+                "img-src 'self' https://fastapi.tiangolo.com https://image.tmdb.org data:;",
+                "frame-src https://www.youtube.com",
+                "connect-src 'self' https://api.themoviedb.org",
+            ]
+        else:
+            # Normal strict CSP
+            csp_directives = [
+                "default-src 'self'",
+                "script-src 'self' 'unsafe-inline' https://www.youtube.com",
+                "style-src 'self' 'unsafe-inline'",
+                "img-src 'self' https://image.tmdb.org data:",
+                "frame-src https://www.youtube.com",
+                "connect-src 'self' https://api.themoviedb.org",
+            ]
         response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
         
         # Additional headers

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -7,12 +7,13 @@ from app.database import Base
 class Watchlist(Base):
     """
     Watchlist model - Movies saved by users to watch later
+    Enhanced with features from both branches
     """
     __tablename__ = "watchlists"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    movie_id = Column(Integer, nullable=False, index=True)  # TMDB movie ID
+    movie_id = Column(Integer, nullable=False, index=True)  # TMDB movie ID (not FK to allow flexibility)
     watched = Column(Boolean, default=False)
     rating = Column(Integer, nullable=True)  # User's rating 1-10 (optional)
     notes = Column(Text, nullable=True)  # Personal notes about the movie
@@ -22,6 +23,11 @@ class Watchlist(Base):
 
     # Relationship
     user = relationship("User", back_populates="watchlist_items")
+
+    # Ensure one entry per user per movie
+    __table_args__ = (
+        UniqueConstraint('user_id', 'movie_id', name='unique_user_movie_watchlist'),
+    )
 
     def __repr__(self):
         return f"<Watchlist(user_id={self.user_id}, movie_id={self.movie_id}, watched={self.watched})>"
@@ -65,4 +71,4 @@ class CustomListItem(Base):
     custom_list = relationship("CustomList", back_populates="list_items")
 
     def __repr__(self):
-        return f"<CustomListItem(list_id={self.list_id}, movie_id={self.movie_id})>"
+        return f"<CustomListItem(list_id={self.list_id}, movie_id={self.movie_id})"
