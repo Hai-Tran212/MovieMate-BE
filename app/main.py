@@ -1,9 +1,11 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from app.routes import auth, movies, watchlist, recommendations, similar_movies
+from app.routes import auth, movies, watchlist, recommendations, similar_movies, admin
 from app.middleware.security import SecurityHeadersMiddleware
+from app.services.background_jobs import background_jobs
 import os
 import logging
 
@@ -14,13 +16,57 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create FastAPI app
+
+# ============================================
+# Application Lifespan Management
+# ============================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Manage application lifespan events
+    
+    Startup:
+    - Start background jobs (trending/popular updates, cache cleanup)
+    - Log security configuration
+    
+    Shutdown:
+    - Stop background jobs gracefully
+    """
+    # Startup
+    logger.info("=" * 60)
+    logger.info("🚀 MovieMate API Starting...")
+    logger.info(f"   Environment: {os.getenv('ENVIRONMENT', 'development')}")
+    logger.info(f"   CORS Origins: {len([os.getenv('FRONTEND_URL')] + ['http://localhost:5173'])} configured")
+    logger.info("=" * 60)
+    
+    # Start background jobs
+    try:
+        background_jobs.start()
+    except Exception as e:
+        logger.error(f"Failed to start background jobs: {str(e)}")
+    
+    yield
+    
+    # Shutdown
+    logger.info("=" * 60)
+    logger.info("🛑 MovieMate API Shutting Down...")
+    try:
+        background_jobs.shutdown()
+        logger.info("   Background jobs stopped")
+    except Exception as e:
+        logger.error(f"Error stopping background jobs: {str(e)}")
+    logger.info("=" * 60)
+
+
+# Create FastAPI app with lifespan handler
 app = FastAPI(
     title="MovieMate API",
     description="Movie recommendation system with TMDB integration",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # ============================================
@@ -114,24 +160,12 @@ app.include_router(watchlist.router)
 app.include_router(watchlist.custom_list_router)
 app.include_router(similar_movies.router)  # Real-time similar movies (no cache)
 app.include_router(recommendations.router)  # Personalized recommendations (with cache)
+app.include_router(admin.router)  # Background jobs management
 
 # Future routes (uncomment when ready)
 # from app.routes import ratings, reviews
 # app.include_router(ratings.router)
 # app.include_router(reviews.router)
-
-# ============================================
-# Startup Event
-# ============================================
-@app.on_event("startup")
-async def startup_event():
-    """Log security configuration on startup"""
-    logger.info("=" * 50)
-    logger.info("MovieMate API Starting...")
-    logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'development')}")
-    logger.info(f"CORS Origins: {len(allowed_origins)} configured")
-    logger.info("Security: Headers (XSS, CSP, HSTS), CSRF Protection, Input Validation")
-    logger.info("=" * 50)
 
 if __name__ == "__main__":
     import uvicorn
