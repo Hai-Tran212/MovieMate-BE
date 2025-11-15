@@ -1,10 +1,11 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from fastapi import HTTPException, status
 from typing import List, Optional
 from datetime import datetime
 
 from app.models.watchlist import Watchlist, CustomList, CustomListItem
+from app.models.movie import Movie
 from app.schemas.watchlist import (
     WatchlistAdd,
     WatchlistUpdate,
@@ -13,18 +14,63 @@ from app.schemas.watchlist import (
     CustomListUpdate,
     CustomListItemAdd
 )
+from app.services.tmdb_service import TMDBService
 
 
 class WatchlistService:
     """Service for watchlist operations"""
 
     @staticmethod
+    def _ensure_movie_exists(db: Session, tmdb_id: int) -> int:
+        """
+        Ensure movie exists in DB, fetch from TMDB if not
+        Returns the internal movie.id (not tmdb_id)
+        """
+        # Check if movie already exists
+        movie = db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
+        
+        if movie:
+            return movie.id
+        
+        # Fetch from TMDB and insert
+        try:
+            tmdb_details = TMDBService.get_movie_details(tmdb_id)
+            
+            new_movie = Movie(
+                tmdb_id=tmdb_id,
+                title=tmdb_details.get("title", "Unknown"),
+                overview=tmdb_details.get("overview"),
+                release_date=tmdb_details.get("release_date"),
+                poster_path=tmdb_details.get("poster_path"),
+                backdrop_path=tmdb_details.get("backdrop_path"),
+                vote_average=tmdb_details.get("vote_average", 0.0),
+                vote_count=tmdb_details.get("vote_count", 0),
+                popularity=tmdb_details.get("popularity", 0.0),
+                genres=tmdb_details.get("genres", []),
+                runtime=tmdb_details.get("runtime")
+            )
+            db.add(new_movie)
+            db.commit()
+            db.refresh(new_movie)
+            return new_movie.id
+            
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to fetch movie details from TMDB: {str(e)}"
+            )
+
+    @staticmethod
     def add_to_watchlist(db: Session, user_id: int, watchlist_data: WatchlistAdd) -> Watchlist:
         """Add a movie to user's watchlist"""
+        # Ensure movie exists in DB and get internal movie_id
+        internal_movie_id = WatchlistService._ensure_movie_exists(db, watchlist_data.movie_id)
+        
         # Check if already in watchlist
         existing = db.query(Watchlist).filter(
             Watchlist.user_id == user_id,
-            Watchlist.movie_id == watchlist_data.movie_id
+            Watchlist.movie_id == internal_movie_id
         ).first()
 
         if existing:
@@ -36,12 +82,17 @@ class WatchlistService:
         # Create new watchlist item
         watchlist_item = Watchlist(
             user_id=user_id,
-            movie_id=watchlist_data.movie_id,
-            notes=watchlist_data.notes
+            movie_id=internal_movie_id
         )
         db.add(watchlist_item)
         db.commit()
         db.refresh(watchlist_item)
+        
+        # Reload with movie relationship for tmdb_id property
+        watchlist_item = db.query(Watchlist).options(joinedload(Watchlist.movie)).filter(
+            Watchlist.id == watchlist_item.id
+        ).first()
+        
         return watchlist_item
 
     @staticmethod
@@ -53,7 +104,7 @@ class WatchlistService:
         limit: int = 100
     ) -> List[Watchlist]:
         """Get user's watchlist with optional filtering"""
-        query = db.query(Watchlist).filter(Watchlist.user_id == user_id)
+        query = db.query(Watchlist).options(joinedload(Watchlist.movie)).filter(Watchlist.user_id == user_id)
         
         if watched is not None:
             query = query.filter(Watchlist.watched == watched)
@@ -63,7 +114,7 @@ class WatchlistService:
     @staticmethod
     def get_watchlist_item(db: Session, user_id: int, item_id: int) -> Watchlist:
         """Get a specific watchlist item"""
-        item = db.query(Watchlist).filter(
+        item = db.query(Watchlist).options(joinedload(Watchlist.movie)).filter(
             Watchlist.id == item_id,
             Watchlist.user_id == user_id
         ).first()
@@ -85,7 +136,7 @@ class WatchlistService:
         """Update a watchlist item"""
         item = WatchlistService.get_watchlist_item(db, user_id, item_id)
 
-        # Update fields
+        # Update watched status
         if update_data.watched is not None:
             item.watched = update_data.watched  # type: ignore
             if update_data.watched:
@@ -93,17 +144,14 @@ class WatchlistService:
             else:
                 item.watched_at = None  # type: ignore
 
-        # Handle rating update - check if rating field was provided in request
-        # This allows setting rating to None (remove rating)
-        update_dict = update_data.model_dump(exclude_unset=True)
-        if 'rating' in update_dict:
-            item.rating = update_data.rating  # type: ignore
-
-        if update_data.notes is not None:
-            item.notes = update_data.notes  # type: ignore
-
         db.commit()
         db.refresh(item)
+        
+        # Reload with movie relationship for tmdb_id property
+        item = db.query(Watchlist).options(joinedload(Watchlist.movie)).filter(
+            Watchlist.id == item.id
+        ).first()
+        
         return item
 
     @staticmethod
@@ -114,11 +162,22 @@ class WatchlistService:
         db.commit()
 
     @staticmethod
-    def check_in_watchlist(db: Session, user_id: int, movie_id: int) -> dict:
-        """Check if a movie is in user's watchlist and return item_id if exists"""
+    def check_in_watchlist(db: Session, user_id: int, tmdb_id: int) -> dict:
+        """
+        Check if a movie is in user's watchlist and return item_id if exists
+        Note: tmdb_id is the TMDB movie ID, not the internal movie.id
+        """
+        # First find the internal movie_id from tmdb_id
+        movie = db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
+        
+        if not movie:
+            # Movie doesn't exist in DB yet, so definitely not in watchlist
+            return {"in_watchlist": False, "item_id": None}
+        
+        # Check watchlist using internal movie_id
         item = db.query(Watchlist).filter(
             Watchlist.user_id == user_id,
-            Watchlist.movie_id == movie_id
+            Watchlist.movie_id == movie.id
         ).first()
         
         if item:
@@ -138,16 +197,10 @@ class WatchlistService:
             Watchlist.watched == True
         ).scalar()
 
-        avg_rating = db.query(func.avg(Watchlist.rating)).filter(
-            Watchlist.user_id == user_id,
-            Watchlist.rating.isnot(None)
-        ).scalar()
-
         return WatchlistStats(
             total_items=total or 0,
             watched_items=watched or 0,
-            unwatched_items=(total or 0) - (watched or 0),
-            average_rating=float(avg_rating) if avg_rating else None
+            unwatched_items=(total or 0) - (watched or 0)
         )
 
 
