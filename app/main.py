@@ -1,6 +1,7 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from app.routes import auth, movies, watchlist, recommendations, similar_movies, admin
@@ -89,7 +90,60 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],  # Thêm để expose tất cả headers
 )
+
+# ============================================
+# Exception Handlers - Đảm bảo CORS cho mọi response
+# ============================================
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """
+    Custom exception handler đảm bảo CORS headers luôn có
+    Đặc biệt quan trọng cho 401 Unauthorized errors
+    """
+    origin = request.headers.get("origin")
+    
+    # Tạo response
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+    
+    # Thêm CORS headers nếu origin hợp lệ
+    if origin in allowed_origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+    
+    return response
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """
+    Catch-all handler để đảm bảo CORS headers cho mọi lỗi
+    """
+    origin = request.headers.get("origin")
+    
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    
+    response = JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
+    
+    # Thêm CORS headers nếu origin hợp lệ
+    if origin in allowed_origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+    
+    return response
 
 # Security Headers - FIX CHO SWAGGER UI
 # Thay vì dùng SecurityHeadersMiddleware từ file ngoài, ta định nghĩa trực tiếp ở đây

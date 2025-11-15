@@ -7,27 +7,30 @@ from app.database import Base
 class Watchlist(Base):
     """
     Watchlist model - Movies saved by users to watch later
-    Enhanced with features from both branches
+    Matches database schema exactly
     """
     __tablename__ = "watchlists"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    movie_id = Column(Integer, nullable=False, index=True)  # TMDB movie ID (not FK to allow flexibility)
+    movie_id = Column(Integer, ForeignKey('movies.id', ondelete='CASCADE'), nullable=False, index=True)
     watched = Column(Boolean, default=False)
-    rating = Column(Integer, nullable=True)  # User's rating 1-10 (optional)
-    notes = Column(Text, nullable=True)  # Personal notes about the movie
     added_at = Column(DateTime(timezone=True), server_default=func.now())
     watched_at = Column(DateTime(timezone=True), nullable=True)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    # Relationship
+    # Relationships
     user = relationship("User", back_populates="watchlist_items")
+    movie = relationship("Movie")
 
     # Ensure one entry per user per movie
     __table_args__ = (
         UniqueConstraint('user_id', 'movie_id', name='unique_user_movie_watchlist'),
     )
+
+    @property
+    def tmdb_id(self) -> int:
+        """Get TMDB ID from related movie"""
+        return self.movie.tmdb_id if self.movie else None
 
     def __repr__(self):
         return f"<Watchlist(user_id={self.user_id}, movie_id={self.movie_id}, watched={self.watched})>"

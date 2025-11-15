@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional, List
 
@@ -7,35 +7,23 @@ from typing import Optional, List
 
 class WatchlistAdd(BaseModel):
     """Schema for adding a movie to watchlist"""
-    movie_id: int = Field(..., description="TMDB movie ID")
-    notes: Optional[str] = Field(None, max_length=500, description="Personal notes")
+    movie_id: int = Field(..., description="TMDB movie ID (will be converted to internal movie.id)")
 
 
 class WatchlistUpdate(BaseModel):
     """Schema for updating watchlist item"""
     watched: Optional[bool] = Field(None, description="Mark as watched/unwatched")
-    rating: Optional[int] = Field(None, description="Rating 1-10, or null to remove rating")
-    notes: Optional[str] = Field(None, max_length=500, description="Personal notes")
-    
-    @validator('rating')
-    def validate_rating(cls, v):
-        """Validate rating is between 1-10 or None"""
-        if v is not None and (v < 1 or v > 10):
-            raise ValueError('Rating must be between 1 and 10, or null to remove')
-        return v
 
 
 class WatchlistResponse(BaseModel):
     """Schema for watchlist item response"""
     id: int
     user_id: int
-    movie_id: int
+    movie_id: int  # Internal DB id
+    tmdb_id: int  # TMDB movie ID for frontend
     watched: bool
-    rating: Optional[int]
-    notes: Optional[str]
     added_at: datetime
     watched_at: Optional[datetime]
-    updated_at: datetime
 
     class Config:
         from_attributes = True  # Pydantic v2 (was orm_mode in v1)
@@ -44,9 +32,8 @@ class WatchlistResponse(BaseModel):
 class WatchlistStats(BaseModel):
     """Schema for watchlist statistics"""
     total_items: int
-    watched_items: int
-    unwatched_items: int
-    average_rating: Optional[float] = None
+    watched_items: int = 0
+    unwatched_items: int = 0
 
 
 # ==================== CUSTOM LIST SCHEMAS ====================
@@ -67,7 +54,7 @@ class CustomListUpdate(BaseModel):
 
 class CustomListItemAdd(BaseModel):
     """Schema for adding item to custom list"""
-    movie_id: int = Field(..., description="TMDB movie ID")
+    movie_id: int = Field(..., description="Movie ID")
     notes: Optional[str] = Field(None, max_length=500, description="Personal notes")
 
 
