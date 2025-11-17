@@ -103,12 +103,33 @@ class WatchlistService:
         skip: int = 0,
         limit: int = 100
     ) -> List[Watchlist]:
-        """Get user's watchlist with optional filtering"""
+        """
+        Get user's watchlist with optional filtering.
+        
+        Optimizations:
+        - Uses joinedload() to prevent N+1 queries (loads movie data eagerly)
+        - Pagination with skip/limit to avoid loading too many records
+        - Index on (user_id, watched, added_at) speeds up filtering and sorting
+        
+        Args:
+            db: Database session
+            user_id: User ID
+            watched: Filter by watched status (None = all)
+            skip: Number of records to skip (pagination)
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of watchlist items with movie data loaded
+        """
+        # Use joinedload to prevent N+1 query problem
+        # This loads the movie relationship in a single query
         query = db.query(Watchlist).options(joinedload(Watchlist.movie)).filter(Watchlist.user_id == user_id)
         
         if watched is not None:
             query = query.filter(Watchlist.watched == watched)
         
+        # Order by most recently added first
+        # Index on (user_id, added_at) makes this efficient
         return query.order_by(Watchlist.added_at.desc()).offset(skip).limit(limit).all()
 
     @staticmethod
@@ -187,11 +208,27 @@ class WatchlistService:
 
     @staticmethod
     def get_watchlist_stats(db: Session, user_id: int) -> WatchlistStats:
-        """Get watchlist statistics"""
+        """
+        Get watchlist statistics.
+        
+        Optimizations:
+        - Uses scalar() instead of all() for count queries (more efficient)
+        - Single query per count operation
+        - Index on (user_id, watched) makes filtering fast
+        
+        Args:
+            db: Database session
+            user_id: User ID
+            
+        Returns:
+            WatchlistStats with total, watched, and unwatched counts
+        """
+        # Count total items
         total = db.query(func.count(Watchlist.id)).filter(
             Watchlist.user_id == user_id
         ).scalar()
 
+        # Count watched items
         watched = db.query(func.count(Watchlist.id)).filter(
             Watchlist.user_id == user_id,
             Watchlist.watched == True
