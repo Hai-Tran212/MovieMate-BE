@@ -1,6 +1,7 @@
 alembic==1.12.1
 annotated-types==0.7.0
 anyio==3.7.1
+APScheduler==3.10.4
 bcrypt==4.0.1
 certifi==2025.10.5
 cffi==2.0.0
@@ -26,7 +27,9 @@ pycparser==2.23
 pydantic==2.12.2
 pydantic_core==2.41.4
 python-dateutil==2.9.0.post0
+python-dotenv==1.0.0
 python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
 pytz==2025.2
 regex==2025.9.18
 requests==2.31.0
@@ -44,10 +47,17 @@ typing_extensions==4.15.0
 tzdata==2025.2
 urllib3==2.5.0
 uvicorn[standard]==0.24.0
-python-multipart==0.0.6
-python-dotenv==1.0.0
+
+# Testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
+
+# Optional: Redis for distributed caching (production)
+# redis==5.0.1
+
+# Optional: Monitoring and profiling
+# sentry-sdk==1.40.0
+# memory-profiler==0.61.0
 APScheduler==3.10.4
 
 # Security & Input Validation
