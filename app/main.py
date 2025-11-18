@@ -216,9 +216,12 @@ app.include_router(similar_movies.router)  # Real-time similar movies (no cache)
 app.include_router(recommendations.router)  # Personalized recommendations (with cache)
 app.include_router(admin.router)  # Background jobs management
 
+# Rating system - Should-Have Feature
+from app.routes import ratings
+app.include_router(ratings.router)
+
 # Future routes (uncomment when ready)
-# from app.routes import ratings, reviews
-# app.include_router(ratings.router)
+# from app.routes import reviews
 # app.include_router(reviews.router)
 
 if __name__ == "__main__":
