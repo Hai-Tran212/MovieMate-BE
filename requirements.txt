@@ -52,13 +52,6 @@ uvicorn[standard]==0.24.0
 pytest==7.4.3
 pytest-asyncio==0.21.1
 
-# Optional: Redis for distributed caching (production)
-# redis==5.0.1
-
-# Optional: Monitoring and profiling
-# sentry-sdk==1.40.0
-# memory-profiler==0.61.0
-APScheduler==3.10.4
 
 # Security & Input Validation
 bleach==6.0.0  # HTML sanitization for XSS prevention
