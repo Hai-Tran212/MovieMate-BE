@@ -2,11 +2,11 @@
 Recommendation Routes
 Endpoints for content-based movie recommendations
 """
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Header
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.services.recommendation_service import RecommendationService
-from typing import List, Dict
+from typing import List, Dict, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -219,3 +219,107 @@ async def get_cache_stats(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error getting cache stats: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Stats error: {str(e)}")
+
+
+@router.get("/mood/{mood}")
+async def get_mood_recommendations(
+    mood: str,
+    limit: int = Query(20, ge=1, le=50, description="Number of recommendations (1-50)"),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Get recommendations based on current mood
+    
+    **Available Moods:**
+    - `happy`: Comedy, Family, Animation, Music
+    - `sad`: Drama, Romance
+    - `excited`: Action, Adventure, Sci-Fi
+    - `relaxed`: Comedy, Family, Animation
+    - `scared`: Horror, Thriller
+    - `thoughtful`: Drama, Mystery, History, Documentary
+    - `romantic`: Romance, Comedy, Drama
+    
+    **Algorithm:**
+    - Maps mood to specific genre combinations
+    - Considers runtime preferences per mood
+    - Personalizes based on user's rating history
+    - Adds diversity to avoid repetitive recommendations
+    
+    **Parameters:**
+    - `mood`: One of the available moods listed above
+    - `limit`: Number of recommendations (default: 20, max: 50)
+    
+    **Returns:**
+    List of movies matching the mood with mood scores
+    
+    **Example:**
+    ```
+    GET /api/recommendations/mood/happy?limit=15
+    ```
+    
+    **Response:**
+    ```json
+    {
+        "mood": "happy",
+        "genres": [35, 10751, 16, 10402],
+        "recommendations": [...],
+        "count": 15
+    }
+    ```
+    
+    **Note:** Authentication optional. If authenticated, recommendations are personalized.
+    """
+    from app.utils.dependencies import get_current_user
+    from app.models.user import User
+    from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+    
+    try:
+        # Default to anonymous user
+        user_id: int = 1
+        
+        # Try to authenticate if Authorization header is present
+        if authorization and authorization.startswith("Bearer "):
+            try:
+                # Extract token and get user
+                from app.utils.security import decode_token
+                token = authorization.replace("Bearer ", "")
+                payload = decode_token(token)
+                
+                if payload and payload.get("type") == "access":
+                    authenticated_user_id = payload.get("user_id")
+                    user = db.query(User).filter(User.id == authenticated_user_id).first()
+                    
+                    if user is not None and authenticated_user_id is not None:
+                        # Use the ID from token payload (it's an int)
+                        user_id = authenticated_user_id
+                        logger.info(f"Authenticated user {user_id} requesting mood recommendations")
+            except Exception as auth_error:
+                # If auth fails, just continue with anonymous user
+                logger.debug(f"Authentication failed, using anonymous user: {str(auth_error)}")
+        
+        recommendations = RecommendationService.get_mood_based_recommendations(
+            db=db,
+            user_id=user_id,
+            mood=mood,
+            limit=limit
+        )
+        
+        # Get mood configuration for response
+        mood_config = RecommendationService.MOOD_TO_GENRES.get(mood, {})
+        
+        return {
+            "mood": mood,
+            "genres": mood_config.get('include', []) if isinstance(mood_config, dict) else mood_config,
+            "excluded_genres": mood_config.get('exclude', []) if isinstance(mood_config, dict) else [],
+            "runtime_preference": RecommendationService.MOOD_RUNTIME_PREFS.get(mood),
+            "recommendations": recommendations,
+            "count": len(recommendations),
+            "algorithm": "enhanced_mood_matching_v2"  # Version tracking
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting mood recommendations: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Mood recommendation error: {str(e)}")

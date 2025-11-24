@@ -20,7 +20,8 @@ async def get_current_user(
     user_id = payload.get("user_id")
     user = db.query(User).filter(User.id == user_id).first()
 
-    if not user or not user.is_active:
+    # Avoid direct boolean evaluation of SQLAlchemy column attributes
+    if user is None or user.is_active is not True:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
     return user

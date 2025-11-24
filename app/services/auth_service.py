@@ -5,7 +5,10 @@ from app.utils.security import hash_password, verify_password, create_access_tok
 from fastapi import HTTPException, status
 from datetime import timedelta
 import os
+import logging
+from typing import cast
 
+logger = logging.getLogger(__name__)
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
 class AuthService:
@@ -39,10 +42,18 @@ class AuthService:
     def login_user(db: Session, credentials: UserLogin) -> dict:
         # Find user
         user = db.query(User).filter(User.email == credentials.email).first()
-        if not user or not verify_password(credentials.password, user.password_hash):
+        
+        # Debug logging
+        if not user:
+            logger.warning(f"Login failed: User not found with email {credentials.email}")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
         
-        if not user.is_active:
+        if not verify_password(credentials.password, str(user.password_hash)):
+            logger.warning(f"Login failed: Incorrect password for email {credentials.email}")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+        # Cast is_active to bool to satisfy static type checking tools
+        if not cast(bool, user.is_active):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated") 
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated") 
 
         # Create token

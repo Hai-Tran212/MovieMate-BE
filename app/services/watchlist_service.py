@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from fastapi import HTTPException, status
-from typing import List, Optional
+from typing import List, Optional, cast
 from datetime import datetime
 
 from app.models.watchlist import Watchlist, CustomList, CustomListItem
@@ -30,7 +30,7 @@ class WatchlistService:
         movie = db.query(Movie).filter(Movie.tmdb_id == tmdb_id).first()
         
         if movie:
-            return movie.id
+            return cast(int, movie.id)
         
         # Fetch from TMDB and insert
         try:
@@ -52,7 +52,8 @@ class WatchlistService:
             db.add(new_movie)
             db.commit()
             db.refresh(new_movie)
-            return new_movie.id
+            # Cast for static type checkers (runtime value is an int after flush/refresh)
+            return cast(int, new_movie.id)
             
         except Exception as e:
             db.rollback()
