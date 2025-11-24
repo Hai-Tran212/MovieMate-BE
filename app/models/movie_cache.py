@@ -17,6 +17,7 @@ class MovieCache(Base):
         title: Movie title
         genres: List of genre IDs [28, 12, 16]
         keywords: List of keyword IDs for content matching
+        keyword_names: List of keyword names (strings) for mood/tone analysis
         cast: List of top 10 actor IDs
         crew: List of director/writer/producer IDs
         vote_average: TMDB rating (0-10)
@@ -47,6 +48,7 @@ class MovieCache(Base):
     # Feature vectors for recommendations (stored as JSON arrays)
     genres = Column(JSON)           # [28, 12, 16] - Action, Adventure, Animation
     keywords = Column(JSON)         # [1234, 5678] - Keyword IDs
+    keyword_names = Column(JSON)    # ["romance", "dark", "superhero"] - Keyword names (lowercase)
     cast = Column(JSON)             # [500, 501] - Actor IDs (top 10)
     crew = Column(JSON)             # [100, 101] - Director, Writer, Producer IDs
     

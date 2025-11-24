@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from typing import Optional
 from app.database import Base
 
 
@@ -26,10 +27,10 @@ class Watchlist(Base):
     __table_args__ = (
         UniqueConstraint('user_id', 'movie_id', name='unique_user_movie_watchlist'),
     )
-
     @property
-    def tmdb_id(self) -> int:
+    def tmdb_id(self) -> Optional[int]:
         """Get TMDB ID from related movie"""
+        return self.movie.tmdb_id if self.movie else None
         return self.movie.tmdb_id if self.movie else None
 
     def __repr__(self):
