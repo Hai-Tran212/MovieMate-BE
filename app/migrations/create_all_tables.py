@@ -20,6 +20,7 @@ from app.models.review import Review
 from app.models.watchlist import Watchlist, CustomList, CustomListItem
 from app.models.user_pref import UserPref
 from app.models.movie_cache import MovieCache
+from app.models.password_reset_token import PasswordResetToken
 
 
 def create_tables():
@@ -43,6 +44,7 @@ def create_tables():
         print("   - custom_list_items")
         print("   - user_preferences")
         print("   - movie_cache")
+        print("   - password_reset_tokens")
         print("=" * 60)
         
     except Exception as e:
