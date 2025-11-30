@@ -11,6 +11,7 @@ from datetime import datetime
 
 from app.models.rating import Rating
 from app.models.movie import Movie
+from app.models.movie_cache import MovieCache
 from app.models.user import User
 from app.schemas.rating import RatingCreate, RatingUpdate
 from app.services.tmdb_service import TMDBService
@@ -18,6 +19,68 @@ from app.services.tmdb_service import TMDBService
 
 class RatingService:
     """Service for movie rating operations"""
+
+    @staticmethod
+    def _ensure_movie_in_cache(db: Session, tmdb_id: int, tmdb_details: dict = None) -> None:
+        """
+        Ensure movie exists in MovieCache for hybrid recommendations.
+        This is a fire-and-forget operation - failures are logged but don't block rating.
+        
+        Args:
+            db: Database session
+            tmdb_id: TMDB movie ID
+            tmdb_details: Optional pre-fetched TMDB details (to avoid duplicate API call)
+        """
+        try:
+            # Check if already in cache
+            existing = db.query(MovieCache).filter(MovieCache.tmdb_id == tmdb_id).first()
+            if existing:
+                return  # Already cached, nothing to do
+            
+            # Fetch details if not provided
+            if not tmdb_details:
+                tmdb_details = TMDBService.get_movie_details(tmdb_id)
+            
+            if not tmdb_details:
+                return  # Can't fetch, skip silently
+            
+            # Extract feature vectors for recommendations
+            genres = [g['id'] for g in tmdb_details.get('genres', [])]
+            
+            keywords_data = tmdb_details.get('keywords', {}).get('keywords', [])
+            keyword_ids = [k['id'] for k in keywords_data]
+            keyword_names = [k['name'].lower() for k in keywords_data]
+            
+            cast_data = tmdb_details.get('credits', {}).get('cast', [])
+            cast_ids = [c['id'] for c in cast_data[:10]]
+            
+            crew_data = tmdb_details.get('credits', {}).get('crew', [])
+            important_jobs = ['Director', 'Producer', 'Screenplay', 'Writer']
+            crew_ids = [c['id'] for c in crew_data if c.get('job') in important_jobs]
+            
+            # Create cache entry
+            cache_entry = MovieCache(
+                tmdb_id=tmdb_id,
+                title=tmdb_details.get('title', ''),
+                overview=tmdb_details.get('overview', ''),
+                release_date=tmdb_details.get('release_date', ''),
+                poster_path=tmdb_details.get('poster_path', ''),
+                backdrop_path=tmdb_details.get('backdrop_path', ''),
+                vote_average=tmdb_details.get('vote_average', 0.0),
+                popularity=tmdb_details.get('popularity', 0.0),
+                genres=genres,
+                keywords=keyword_ids,
+                keyword_names=keyword_names,
+                cast=cast_ids,
+                crew=crew_ids
+            )
+            
+            db.add(cache_entry)
+            db.commit()
+            
+        except Exception:
+            # Silent fail - caching is optional, don't break the rating flow
+            db.rollback()
 
     @staticmethod
     def _ensure_movie_exists(db: Session, tmdb_id: int) -> int:
@@ -91,6 +154,9 @@ class RatingService:
         
         # Ensure movie exists in DB and get internal movie_id
         internal_movie_id = RatingService._ensure_movie_exists(db, rating_data.movie_id)
+        
+        # Also ensure movie is in MovieCache for hybrid recommendations (non-blocking)
+        RatingService._ensure_movie_in_cache(db, rating_data.movie_id)
         
         # Check if rating already exists
         existing_rating = db.query(Rating).filter(

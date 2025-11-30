@@ -1,6 +1,6 @@
 """
-Recommendation Service - Content-Based Filtering Engine
-Uses KNN algorithm and cosine similarity for movie recommendations
+Recommendation Service - Content-Based & Hybrid Filtering Engine
+Uses KNN algorithm, cosine similarity, and collaborative filtering for movie recommendations
 """
 from typing import List, Dict, Optional, Tuple, Any
 import numpy as np
@@ -9,6 +9,7 @@ from sklearn.neighbors import NearestNeighbors
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.models.movie_cache import MovieCache
+from app.models.rating import Rating
 from app.services.tmdb_service import TMDBService
 from datetime import datetime, timedelta
 import logging
@@ -18,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 class RecommendationService:
     """
-    Content-based recommendation engine using:
-    - KNN (K-Nearest Neighbors) algorithm
-    - Cosine similarity for feature matching
+    Hybrid recommendation engine combining:
+    - Content-based filtering (KNN, cosine similarity)
+    - Collaborative filtering (user-based)
     - Genre, cast, crew, and keyword analysis
     """
 
@@ -48,6 +49,12 @@ class RecommendationService:
     # Similar-movie specific thresholds (for KNN pre-filtering)
     SIMILAR_MIN_RATING = 5.5
     SIMILAR_MAX_CANDIDATES = 1000
+    
+    # Hybrid recommendation weights (easy to tune)
+    HYBRID_CONTENT_WEIGHT = 0.7      # 70% content-based
+    HYBRID_COLLABORATIVE_WEIGHT = 0.3 # 30% collaborative
+    HYBRID_MIN_CONTENT_SCORE = 0.3   # Minimum content score to consider
+    HYBRID_MIN_COLLAB_SCORE = 0.3    # Minimum collaborative score to consider
     
     # Mood-based recommendation mappings
     # Updated with better genre combinations and exclusions
@@ -858,3 +865,221 @@ class RecommendationService:
         }
 
         return scored_movies
+
+    # ==================== HYBRID RECOMMENDATION METHODS ====================
+    
+    @staticmethod
+    def get_hybrid_recommendations(
+        db: Session,
+        user_id: int,
+        movie_id: Optional[int] = None,
+        limit: int = 20
+    ) -> List[Dict]:
+        """
+        Get hybrid recommendations combining content-based and collaborative filtering
+        
+        Algorithm:
+        - 70% content-based (similar movies or user preferences)
+        - 30% collaborative filtering (similar users' ratings)
+        - Normalized scores combined with configurable weights
+        
+        Args:
+            db: Database session
+            user_id: Target user ID for personalization
+            movie_id: Optional movie ID for similarity-based recommendations
+            limit: Number of recommendations to return
+            
+        Returns:
+            List of recommended movies with hybrid scores
+        """
+        try:
+            from app.services.collaborative_service import CollaborativeService
+            
+            content_weight = RecommendationService.HYBRID_CONTENT_WEIGHT
+            collaborative_weight = RecommendationService.HYBRID_COLLABORATIVE_WEIGHT
+            
+            # Step 1: Get content-based recommendations
+            content_recs = []
+            if movie_id:
+                # Use similar movies if movie_id provided
+                content_recs = RecommendationService.get_similar_movies(
+                    db=db, 
+                    movie_id=movie_id, 
+                    limit=limit * 2,
+                    use_knn=True
+                )
+            else:
+                # Use user's rating history for content-based
+                user_ratings = db.query(Rating).filter(
+                    Rating.user_id == user_id
+                ).order_by(Rating.rating.desc()).limit(10).all()
+                
+                if user_ratings:
+                    # Get recommendations based on highly rated movies
+                    high_rated = [r for r in user_ratings if r.rating >= 8.0]
+                    if high_rated:
+                        # Use best rated movie for content similarity
+                        content_recs = RecommendationService.get_similar_movies(
+                            db=db,
+                            movie_id=high_rated[0].movie_id,
+                            limit=limit * 2,
+                            use_knn=True
+                        )
+                
+                # Fallback to popular movies if no user history
+                if not content_recs:
+                    popular_movies = db.query(MovieCache).filter(
+                        MovieCache.vote_average >= 7.0,
+                        MovieCache.vote_count >= 100
+                    ).order_by(
+                        MovieCache.popularity.desc()
+                    ).limit(limit * 2).all()
+                    
+                    content_recs = [{
+                        'id': m.id,
+                        'tmdb_id': m.tmdb_id,
+                        'title': m.title,
+                        'similarity_score': 1.0,  # Default score
+                        'vote_average': float(m.vote_average) if m.vote_average else 0.0,
+                        'genres': m.genres or [],
+                        'release_date': m.release_date.isoformat() if m.release_date else None,
+                        'poster_path': m.poster_path,
+                        'overview': m.overview
+                    } for m in popular_movies]
+            
+            # Step 2: Get collaborative filtering recommendations
+            collab_recs = CollaborativeService.get_collaborative_recommendations(
+                db=db,
+                user_id=user_id,
+                limit=limit * 2
+            )
+            
+            # Step 3: Normalize scores to 0-1 range
+            # Normalize content scores
+            if content_recs:
+                max_content = max(
+                    r.get('similarity_score', r.get('score', 0.0)) 
+                    for r in content_recs
+                )
+                if max_content > 0:
+                    for rec in content_recs:
+                        score = rec.get('similarity_score', rec.get('score', 0.0))
+                        rec['normalized_content_score'] = float(score) / max_content
+                else:
+                    for rec in content_recs:
+                        rec['normalized_content_score'] = 0.0
+            
+            # Normalize collaborative scores
+            if collab_recs:
+                max_collab = max(r.get('predicted_rating', 0.0) for r in collab_recs)
+                if max_collab > 0:
+                    for rec in collab_recs:
+                        rec['normalized_collab_score'] = float(rec.get('predicted_rating', 0.0)) / max_collab
+                else:
+                    for rec in collab_recs:
+                        rec['normalized_collab_score'] = 0.0
+            
+            # Step 4: Combine recommendations with hybrid scoring
+            movie_scores = {}
+            
+            # Add content-based scores
+            for rec in content_recs:
+                movie_key = rec.get('id') or rec.get('tmdb_id')
+                content_score = rec.get('normalized_content_score', 0.0)
+                
+                movie_scores[movie_key] = {
+                    'id': rec.get('id'),
+                    'tmdb_id': rec.get('tmdb_id'),
+                    'title': rec.get('title', 'Unknown'),
+                    'content_score': content_score,
+                    'collab_score': 0.0,
+                    'hybrid_score': content_weight * content_score,
+                    'vote_average': rec.get('vote_average', 0.0),
+                    'genres': rec.get('genres', []),
+                    'release_date': rec.get('release_date'),
+                    'poster_path': rec.get('poster_path'),
+                    'overview': rec.get('overview', '')
+                }
+            
+            # Add collaborative scores
+            for rec in collab_recs:
+                movie_key = rec.get('id') or rec.get('tmdb_id')
+                collab_score = rec.get('normalized_collab_score', 0.0)
+                
+                if movie_key in movie_scores:
+                    # Movie already in content-based, add collaborative score
+                    movie_scores[movie_key]['collab_score'] = collab_score
+                    movie_scores[movie_key]['hybrid_score'] += collaborative_weight * collab_score
+                else:
+                    # New movie from collaborative filtering only
+                    movie_scores[movie_key] = {
+                        'id': rec.get('id'),
+                        'tmdb_id': rec.get('tmdb_id'),
+                        'title': rec.get('title', 'Unknown'),
+                        'content_score': 0.0,
+                        'collab_score': collab_score,
+                        'hybrid_score': collaborative_weight * collab_score,
+                        'vote_average': rec.get('vote_average', 0.0),
+                        'genres': rec.get('genres', []),
+                        'release_date': rec.get('release_date'),
+                        'poster_path': rec.get('poster_path'),
+                        'overview': rec.get('overview', '')
+                    }
+            
+            # Step 5: Sort by hybrid score and remove duplicates
+            results = list(movie_scores.values())
+            results.sort(key=lambda x: x['hybrid_score'], reverse=True)
+            
+            # Remove None/invalid entries and limit results
+            final_results = []
+            seen_ids = set()
+            
+            for rec in results:
+                movie_key = rec.get('id') or rec.get('tmdb_id')
+                if movie_key and movie_key not in seen_ids:
+                    seen_ids.add(movie_key)
+                    final_results.append(rec)
+                    if len(final_results) >= limit:
+                        break
+            
+            logger.info(
+                f"Hybrid recommendations: {len(final_results)} movies "
+                f"({len(content_recs)} content + {len(collab_recs)} collaborative)"
+            )
+            
+            return final_results
+            
+        except Exception as e:
+            logger.error(f"Error generating hybrid recommendations: {e}")
+            # Fallback to content-based only
+            if movie_id:
+                return RecommendationService.get_similar_movies(db, movie_id, limit)
+            else:
+                return []
+    
+    @staticmethod
+    def get_personalized_recommendations(
+        db: Session,
+        user_id: int,
+        limit: int = 20
+    ) -> List[Dict]:
+        """
+        Get personalized recommendations for a user using hybrid algorithm
+        
+        This is a convenience wrapper around get_hybrid_recommendations
+        that doesn't require a specific movie_id
+        
+        Args:
+            db: Database session
+            user_id: Target user ID
+            limit: Number of recommendations
+            
+        Returns:
+            List of personalized movie recommendations
+        """
+        return RecommendationService.get_hybrid_recommendations(
+            db=db,
+            user_id=user_id,
+            movie_id=None,
+            limit=limit
+        )

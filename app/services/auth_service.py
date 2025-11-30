@@ -51,10 +51,10 @@ class AuthService:
         if not verify_password(credentials.password, str(user.password_hash)):
             logger.warning(f"Login failed: Incorrect password for email {credentials.email}")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+        
         # Cast is_active to bool to satisfy static type checking tools
         if not cast(bool, user.is_active):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated") 
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated") 
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated")
 
         # Create token
         access_token = create_access_token(

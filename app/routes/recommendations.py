@@ -1,11 +1,13 @@
 """
 Recommendation Routes
-Endpoints for content-based movie recommendations
+Endpoints for content-based, collaborative, and hybrid movie recommendations
 """
 from fastapi import APIRouter, Depends, Query, HTTPException, Header
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.services.recommendation_service import RecommendationService
+from app.utils.dependencies import get_current_user
+from app.models.user import User
 from typing import List, Dict, Optional
 import logging
 
@@ -323,3 +325,109 @@ async def get_mood_recommendations(
     except Exception as e:
         logger.error(f"Error getting mood recommendations: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Mood recommendation error: {str(e)}")
+
+
+# ==================== HYBRID RECOMMENDATION ENDPOINTS ====================
+
+@router.get("/hybrid", response_model=Dict)
+async def get_hybrid_recommendations(
+    movie_id: Optional[int] = Query(None, description="Optional movie ID for content-based component"),
+    limit: int = Query(20, ge=1, le=50, description="Number of recommendations (1-50)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get hybrid recommendations combining content-based and collaborative filtering
+    
+    **Algorithm:**
+    - 70% Content-based filtering (similar movies or user preferences)
+    - 30% Collaborative filtering (similar users' ratings)
+    - Normalized hybrid scoring
+    
+    **Parameters:**
+    - `movie_id`: Optional - if provided, uses similar movies as content component
+    - `limit`: Number of recommendations (default: 20, max: 50)
+    
+    **Returns:**
+    Hybrid recommendations with combined scores showing:
+    - `hybrid_score`: Combined score (0.0 to 1.0)
+    - `content_score`: Content-based component score
+    - `collab_score`: Collaborative filtering component score
+    
+    **Authentication Required:** Yes (JWT token in Authorization header)
+    
+    **Example:**
+    ```
+    GET /api/recommendations/hybrid?limit=10
+    GET /api/recommendations/hybrid?movie_id=550&limit=20
+    ```
+    """
+    try:
+        recommendations = RecommendationService.get_hybrid_recommendations(
+            db=db,
+            user_id=current_user.id,
+            movie_id=movie_id,
+            limit=limit
+        )
+        
+        return {
+            "user_id": current_user.id,
+            "movie_id": movie_id,
+            "algorithm": "hybrid_70_30",
+            "content_weight": RecommendationService.HYBRID_CONTENT_WEIGHT,
+            "collaborative_weight": RecommendationService.HYBRID_COLLABORATIVE_WEIGHT,
+            "recommendations": recommendations,
+            "count": len(recommendations)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in hybrid recommendations: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Hybrid recommendation error: {str(e)}")
+
+
+@router.get("/for-you", response_model=Dict)
+async def get_personalized_recommendations(
+    limit: int = Query(20, ge=1, le=50, description="Number of recommendations (1-50)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get personalized recommendations for the current user
+    
+    **Algorithm:**
+    Uses hybrid recommendation algorithm based on:
+    - User's rating history
+    - Similar users' preferences
+    - Content-based similarity
+    
+    **Parameters:**
+    - `limit`: Number of recommendations (default: 20, max: 50)
+    
+    **Returns:**
+    Personalized movie recommendations with hybrid scores
+    
+    **Authentication Required:** Yes (JWT token in Authorization header)
+    
+    **Example:**
+    ```
+    GET /api/recommendations/for-you?limit=15
+    ```
+    """
+    try:
+        recommendations = RecommendationService.get_personalized_recommendations(
+            db=db,
+            user_id=current_user.id,
+            limit=limit
+        )
+        
+        return {
+            "user_id": current_user.id,
+            "algorithm": "personalized_hybrid",
+            "recommendations": recommendations,
+            "count": len(recommendations),
+            "message": "Recommendations personalized based on your rating history and similar users"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in personalized recommendations: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Personalized recommendation error: {str(e)}")
