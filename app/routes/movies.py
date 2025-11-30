@@ -9,7 +9,7 @@ from app.schemas.search import (
     GenreListResponse,
     SortOption
 )
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 router = APIRouter(prefix="/api/movies", tags=["Movies"])
 
@@ -29,7 +29,8 @@ def discover_movies(
     sort_by: SortOption = Query(SortOption.POPULARITY_DESC, description="Sort option"),
     language: Optional[str] = Query(None, max_length=5, description="Language code (e.g., 'en')"),
     region: Optional[str] = Query(None, max_length=2, description="Region code (e.g., 'US')"),
-    page: int = Query(1, ge=1, le=500, description="Page number")
+    page: int = Query(1, ge=1, le=500, description="Page number"),
+    query: Optional[str] = Query(None, min_length=1, max_length=200, description="Optional text query")
 ):
     """
     Advanced movie discovery with multiple filters
@@ -62,15 +63,20 @@ def discover_movies(
         sort_by=sort_by,
         language=language,
         region=region,
-        page=page
+        page=page,
+        query=query
     )
     
-    # Convert to TMDB parameters
     tmdb_params = search_params.to_tmdb_params()
-    
-    # Call TMDB API
-    result = TMDBService.discover_movies(tmdb_params)
-    return result
+
+    if search_params.query:
+        # Discover endpoint does not support free-text search; fall back to search API
+        result = TMDBService.search_movies(search_params.query, page)
+        filtered_results = _filter_search_results(result.get('results', []), search_params)
+        result['results'] = filtered_results
+        return result
+
+    return TMDBService.discover_movies(tmdb_params)
 
 
 @router.get("/genres", response_model=GenreListResponse)
@@ -159,3 +165,34 @@ def get_top_rated(page: int = Query(1, ge=1)):
 def get_movie_details(movie_id: int):
     """Get movie details by ID - MUST be defined last to avoid path conflicts"""
     return TMDBService.get_movie_details(movie_id)
+
+
+def _filter_search_results(results: List[Dict[str, Any]], params: AdvancedSearchSchema) -> List[Dict[str, Any]]:
+    """Filter TMDB search results locally using advanced filters."""
+    required_genres = set(
+        int(g.strip()) for g in (params.genre or "").split(",") if g.strip().isdigit()
+    )
+
+    def matches(movie: Dict[str, Any]) -> bool:
+        movie_genres = set(movie.get("genre_ids") or [])
+        if required_genres and not required_genres.issubset(movie_genres):
+            return False
+
+        release_date = movie.get("release_date") or ""
+        release_year = int(release_date.split("-")[0]) if release_date and release_date[:4].isdigit() else None
+        if params.year and release_year != params.year:
+            return False
+
+        vote_average = movie.get("vote_average") or 0.0
+        if params.min_rating is not None and vote_average < params.min_rating:
+            return False
+        if params.max_rating is not None and vote_average > params.max_rating:
+            return False
+
+        language = movie.get("original_language")
+        if params.language and language != params.language:
+            return False
+
+        return True
+
+    return [movie for movie in results if matches(movie)]

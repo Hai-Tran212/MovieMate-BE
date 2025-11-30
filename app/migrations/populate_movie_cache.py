@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from app.database import SessionLocal
 from app.services.tmdb_service import TMDBService
 from app.models.movie_cache import MovieCache
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def populate_cache(num_movies=100):
@@ -103,7 +103,7 @@ def populate_cache(num_movies=100):
                     keyword_names=keyword_names,
                     cast=cast_ids,
                     crew=crew_ids,
-                    cached_at=datetime.utcnow()
+                    cached_at=datetime.now(timezone.utc)
                 )
                 
                 db.add(cache_entry)

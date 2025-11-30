@@ -14,7 +14,11 @@ import logging
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -199,7 +203,7 @@ async def health_check():
     return {
         "status": "healthy",
         "api_version": "1.0.0",
-        "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+        "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
         "security": {
             "rate_limiting": "enabled",
             "csrf_protection": "enabled",

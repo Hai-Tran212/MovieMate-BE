@@ -15,8 +15,9 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.services.tmdb_service import TMDBService
+from app.services.recommendation_service import RecommendationService
 from app.models.movie_cache import MovieCache
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import os
 from typing import Dict, List, Optional
@@ -32,6 +33,7 @@ class BackgroundJobService:
     Jobs:
     - Update trending movies (hourly)
     - Update popular movies (daily at 3 AM)
+    - Populate recommendation cache (daily at 2 AM)
     - Cleanup old cache (weekly on Sunday at 4 AM)
     
     Usage:
@@ -50,6 +52,7 @@ class BackgroundJobService:
         self.job_stats = {
             'update_trending': {'last_run': None, 'status': 'idle', 'error': None},
             'update_popular': {'last_run': None, 'status': 'idle', 'error': None},
+            'populate_cache': {'last_run': None, 'status': 'idle', 'error': None},
             'cleanup_cache': {'last_run': None, 'status': 'idle', 'error': None}
         }
 
@@ -85,7 +88,18 @@ class BackgroundJobService:
         )
         logger.info("✓ Scheduled: Update popular movies (daily 3:00 AM)")
 
-        # Job 3: Cleanup old cache weekly on Sunday at 4 AM
+        # Job 3: Nightly cache population for recommendation engine
+        self.scheduler.add_job(
+            func=self.populate_recommendation_cache,
+            trigger=CronTrigger(hour=2, minute=0, timezone=self.timezone),
+            id='populate_cache',
+            name='Populate recommendation cache from TMDB popular list',
+            replace_existing=True,
+            max_instances=1
+        )
+        logger.info("✓ Scheduled: Populate recommendation cache (daily 2:00 AM)")
+
+        # Job 4: Cleanup old cache weekly on Sunday at 4 AM
         self.scheduler.add_job(
             func=self.cleanup_old_cache,
             trigger=CronTrigger(day_of_week='sun', hour=4, minute=0, timezone=self.timezone),
@@ -263,7 +277,7 @@ class BackgroundJobService:
             
             # Get retention period from environment (default 30 days)
             retention_days = int(os.getenv("CACHE_RETENTION_DAYS", "30"))
-            cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
             
             # Delete old entries
             deleted_count = db.query(MovieCache).filter(
@@ -289,6 +303,38 @@ class BackgroundJobService:
             self.job_stats[job_id]['error'] = error_msg
             self.job_stats[job_id]['last_run'] = datetime.now().isoformat()
             
+        finally:
+            db.close()
+
+    def populate_recommendation_cache(self):
+        """
+        Populate MovieCache via RecommendationService (popular movies)
+
+        Keeps the content-based and hybrid recommenders supplied with fresh data.
+        """
+        job_id = 'populate_cache'
+        self.job_stats[job_id]['status'] = 'running'
+        self.job_stats[job_id]['error'] = None
+
+        db: Session = SessionLocal()
+        start_time = datetime.now()
+
+        try:
+            pages = int(os.getenv("CACHE_POPULATE_PAGES", "10"))
+            logger.info(f"[{job_id}] Starting recommendation cache population (pages={pages})...")
+            result = RecommendationService.populate_cache_from_popular(db, pages=pages)
+            elapsed = (datetime.now() - start_time).total_seconds()
+            logger.info(f"[{job_id}] ✓ Completed in {elapsed:.2f}s - Cached total={result.get('total_cached')}")
+            self.job_stats[job_id]['status'] = 'success'
+            self.job_stats[job_id]['last_run'] = datetime.now().isoformat()
+        except Exception as e:
+            db.rollback()
+            elapsed = (datetime.now() - start_time).total_seconds()
+            error_msg = str(e)
+            logger.error(f"[{job_id}] ✗ Failed after {elapsed:.2f}s: {error_msg}")
+            self.job_stats[job_id]['status'] = 'failed'
+            self.job_stats[job_id]['error'] = error_msg
+            self.job_stats[job_id]['last_run'] = datetime.now().isoformat()
         finally:
             db.close()
 
@@ -323,7 +369,7 @@ class BackgroundJobService:
             'vote_average': movie_data.get('vote_average', 0.0),
             'popularity': movie_data.get('popularity', 0.0),
             'genres': [g['id'] for g in movie_data.get('genre_ids', [])] if isinstance(movie_data.get('genre_ids'), list) else movie_data.get('genre_ids', []),
-            'cached_at': datetime.utcnow()
+            'cached_at': datetime.now(timezone.utc)
         }
         
         if existing:

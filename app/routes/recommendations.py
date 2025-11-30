@@ -68,7 +68,7 @@ async def get_recommendations_by_genre(
     genre_ids: str = Query(
         ..., 
         description="Comma-separated genre IDs (e.g., '28,12,16' for Action, Adventure, Animation)",
-        regex="^[0-9,]+$"
+        pattern="^[0-9,]+$"
     ),
     limit: int = Query(20, ge=1, le=50),
     min_rating: float = Query(8.0, ge=0, le=10, description="Minimum vote average"),

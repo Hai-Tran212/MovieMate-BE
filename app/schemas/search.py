@@ -2,7 +2,7 @@
 Advanced search and filter schemas
 Extensible design for future features
 """
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict, ValidationInfo
 from typing import Optional, List
 from enum import Enum
 
@@ -40,8 +40,7 @@ class BaseFilterSchema(BaseModel):
     """
     page: int = Field(default=1, ge=1, le=500, description="Page number")
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 # ============================================
@@ -57,7 +56,7 @@ class AdvancedSearchSchema(BaseFilterSchema):
     genre: Optional[str] = Field(
         None, 
         description="Genre IDs (comma-separated, e.g., '28,12' for Action+Adventure)",
-        example="28,12"
+        json_schema_extra={"example": "28,12"}
     )
     
     # Year filtering
@@ -117,6 +116,14 @@ class AdvancedSearchSchema(BaseFilterSchema):
         max_length=2,
         description="ISO 3166-1 region code (e.g., 'US', 'VN')"
     )
+
+    # Optional text query to combine with filters (server-side filtering)
+    query: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=200,
+        description="Optional text query to combine with filters"
+    )
     
     # Adult content filter
     include_adult: bool = Field(
@@ -130,19 +137,23 @@ class AdvancedSearchSchema(BaseFilterSchema):
     # Future: Rated filter (requires auth)
     # exclude_rated: Optional[bool] = None
     
-    @validator('max_rating')
-    def validate_rating_range(cls, v, values):
+    @field_validator('max_rating')
+    @classmethod
+    def validate_rating_range(cls, v, info: ValidationInfo):
         """Ensure max_rating >= min_rating"""
-        if v is not None and 'min_rating' in values and values['min_rating'] is not None:
-            if v < values['min_rating']:
+        min_rating = info.data.get('min_rating')
+        if v is not None and min_rating is not None:
+            if v < min_rating:
                 raise ValueError('max_rating must be >= min_rating')
         return v
     
-    @validator('max_runtime')
-    def validate_runtime_range(cls, v, values):
+    @field_validator('max_runtime')
+    @classmethod
+    def validate_runtime_range(cls, v, info: ValidationInfo):
         """Ensure max_runtime >= min_runtime"""
-        if v is not None and 'min_runtime' in values and values['min_runtime'] is not None:
-            if v < values['min_runtime']:
+        min_runtime = info.data.get('min_runtime')
+        if v is not None and min_runtime is not None:
+            if v < min_runtime:
                 raise ValueError('max_runtime must be >= min_runtime')
         return v
     
@@ -181,6 +192,9 @@ class AdvancedSearchSchema(BaseFilterSchema):
         
         if self.region:
             params['region'] = self.region
+
+        if self.query:
+            params['query'] = self.query
         
         return params
 
@@ -201,7 +215,8 @@ class SimpleSearchSchema(BaseFilterSchema):
         description="Search query text"
     )
     
-    @validator('query')
+    @field_validator('query')
+    @classmethod
     def validate_query(cls, v):
         """Remove dangerous characters for XSS protection"""
         from app.schemas.validation import SafeStringMixin
@@ -220,7 +235,7 @@ class GenreFilterSchema(BaseFilterSchema):
     genre_ids: str = Field(
         ...,
         description="Comma-separated genre IDs",
-        example="28,12,16"
+        json_schema_extra={"example": "28,12,16"}
     )
     
     sort_by: SortOption = Field(
@@ -228,7 +243,8 @@ class GenreFilterSchema(BaseFilterSchema):
         description="Sort order"
     )
     
-    @validator('genre_ids')
+    @field_validator('genre_ids')
+    @classmethod
     def validate_genre_ids(cls, v):
         """Validate genre IDs are comma-separated integers"""
         try:

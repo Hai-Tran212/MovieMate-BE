@@ -5,10 +5,11 @@ User-based collaborative filtering for movie recommendations
 from typing import List, Dict, Optional, Tuple
 import numpy as np
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from app.models.rating import Rating
 from app.models.user import User
 from app.models.movie_cache import MovieCache
+from app.models.movie import Movie
 import logging
 
 logger = logging.getLogger(__name__)
@@ -228,22 +229,41 @@ class CollaborativeService:
             List of recommended movies with predicted ratings
         """
         try:
-            # Get movies user hasn't rated
+            # Get movies user has already rated (internal movie IDs)
             user_ratings = db.query(Rating.movie_id).filter(Rating.user_id == user_id).all()
             rated_movie_ids = {r.movie_id for r in user_ratings}
-            
-            # Get candidate movies (popular ones user hasn't rated)
-            candidate_movies = db.query(MovieCache).filter(
-                ~MovieCache.id.in_(rated_movie_ids)
-            ).order_by(
+
+            # Base query for candidate movies (popular ones user hasn't rated)
+            candidate_query = db.query(MovieCache, Movie).outerjoin(
+                Movie,
+                Movie.tmdb_id == MovieCache.tmdb_id
+            )
+
+            if rated_movie_ids:
+                candidate_query = candidate_query.filter(
+                    or_(Movie.id.is_(None), ~Movie.id.in_(rated_movie_ids))
+                )
+
+            candidate_rows = candidate_query.order_by(
                 MovieCache.popularity.desc()
             ).limit(CollaborativeService.MAX_CANDIDATE_MOVIES).all()
-            
-            if not candidate_movies:
+
+            if not candidate_rows:
                 logger.info(f"No candidate movies found for user {user_id}")
                 return []
-            
-            candidate_ids = [m.id for m in candidate_movies]
+
+            candidate_map: Dict[int, MovieCache] = {}
+            candidate_ids: List[int] = []
+
+            for cache_row, movie_row in candidate_rows:
+                if movie_row is None:
+                    continue
+                candidate_ids.append(movie_row.id)
+                candidate_map[movie_row.id] = cache_row
+
+            if not candidate_ids:
+                logger.info(f"No candidate movies with matching catalogue entries for user {user_id}")
+                return []
             
             # Predict ratings for candidates
             predictions = CollaborativeService.predict_ratings_collaborative(
@@ -259,18 +279,18 @@ class CollaborativeService:
             for movie_id, predicted_rating in predictions.items():
                 # Only recommend if predicted rating is high enough
                 if predicted_rating >= CollaborativeService.MIN_PREDICTED_RATING:
-                    movie = next((m for m in candidate_movies if m.id == movie_id), None)
-                    if movie:
+                    movie_cache = candidate_map.get(movie_id)
+                    if movie_cache:
                         recommendations.append({
-                            'id': movie.id,
-                            'tmdb_id': movie.tmdb_id,
-                            'title': movie.title,
+                            'id': movie_id,
+                            'tmdb_id': movie_cache.tmdb_id,
+                            'title': movie_cache.title,
                             'predicted_rating': float(predicted_rating),
-                            'vote_average': float(movie.vote_average) if movie.vote_average else 0.0,
-                            'genres': movie.genres or [],
-                            'release_date': movie.release_date.isoformat() if movie.release_date else None,
-                            'poster_path': movie.poster_path,
-                            'overview': movie.overview
+                            'vote_average': float(movie_cache.vote_average) if movie_cache.vote_average else 0.0,
+                            'genres': movie_cache.genres or [],
+                            'release_date': movie_cache.release_date,
+                            'poster_path': movie_cache.poster_path,
+                            'overview': movie_cache.overview
                         })
             
             # Sort by predicted rating

@@ -3,7 +3,7 @@ Rating Schemas - Pydantic models for rating request/response validation
 Follows the same pattern as watchlist schemas for consistency
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime
 from typing import Optional
 
@@ -13,7 +13,8 @@ class RatingCreate(BaseModel):
     movie_id: int = Field(..., description="TMDB movie ID", gt=0)
     rating: float = Field(..., description="Rating value (1-10)", ge=1.0, le=10.0)
     
-    @validator('rating')
+    @field_validator('rating')
+    @classmethod
     def validate_rating(cls, v):
         """Ensure rating is within valid range"""
         if v < 1.0 or v > 10.0:
@@ -25,7 +26,8 @@ class RatingUpdate(BaseModel):
     """Schema for updating an existing rating"""
     rating: float = Field(..., description="New rating value (1-10)", ge=1.0, le=10.0)
     
-    @validator('rating')
+    @field_validator('rating')
+    @classmethod
     def validate_rating(cls, v):
         """Ensure rating is within valid range"""
         if v < 1.0 or v > 10.0:
@@ -50,9 +52,7 @@ class RatingResponse(BaseModel):
             return self.movie.tmdb_id
         return None
     
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RatingWithMovieResponse(BaseModel):
@@ -73,9 +73,7 @@ class RatingWithMovieResponse(BaseModel):
     movie_release_date: Optional[str] = Field(None, description="Release date")
     movie_vote_average: Optional[float] = Field(None, description="TMDB average rating")
     
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RatingStats(BaseModel):
@@ -87,8 +85,8 @@ class RatingStats(BaseModel):
         description="Distribution of ratings (1-10)"
     )
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "total_ratings": 42,
                 "average_rating": 7.5,
@@ -99,6 +97,7 @@ class RatingStats(BaseModel):
                 }
             }
         }
+    )
 
 
 class MovieRatingStats(BaseModel):
@@ -106,13 +105,14 @@ class MovieRatingStats(BaseModel):
     total_ratings: int = Field(..., description="Total ratings for this movie")
     average_rating: float = Field(..., description="Average user rating")
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "total_ratings": 156,
                 "average_rating": 8.2
             }
         }
+    )
 
 
 class UserRatingForMovie(BaseModel):
@@ -123,10 +123,11 @@ class UserRatingForMovie(BaseModel):
     rating: Optional[float] = Field(None, description="User's rating (1-10) or None if not rated")
     rating_id: Optional[int] = Field(None, description="Rating ID if exists")
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "rating": 8.5,
                 "rating_id": 123
             }
         }
+    )

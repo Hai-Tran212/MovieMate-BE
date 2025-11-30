@@ -1,6 +1,6 @@
 """Input validation schemas with XSS protection"""
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 import re
 import bleach
 
@@ -42,7 +42,8 @@ class SearchQuerySchema(BaseModel, SafeStringMixin):
     """Validated search query"""
     query: str = Field(..., min_length=1, max_length=500)
     
-    @validator('query')
+    @field_validator('query')
+    @classmethod
     def clean_query(cls, v):
         return cls.validate_no_script(v)
 
@@ -51,7 +52,8 @@ class ReviewSchema(BaseModel, SafeStringMixin):
     """Validated review input (future feature)"""
     content: str = Field(..., min_length=10, max_length=2000)
     
-    @validator('content')
+    @field_validator('content')
+    @classmethod
     def clean_content(cls, v):
         v = cls.validate_no_script(v)
         return cls.sanitize_html(v)
@@ -61,7 +63,8 @@ class CommentSchema(BaseModel, SafeStringMixin):
     """Validated comment input (future feature)"""
     text: str = Field(..., min_length=1, max_length=500)
     
-    @validator('text')
+    @field_validator('text')
+    @classmethod
     def clean_text(cls, v):
         v = cls.validate_no_script(v)
         return cls.sanitize_html(v)
@@ -69,14 +72,15 @@ class CommentSchema(BaseModel, SafeStringMixin):
 
 class UsernameSchema(BaseModel):
     """Validated username"""
-    username: str = Field(..., min_length=3, max_length=30, regex=r'^[a-zA-Z0-9_]+$')
+    username: str = Field(..., min_length=3, max_length=30, pattern=r'^[a-zA-Z0-9_]+$')
 
 
 class BioSchema(BaseModel, SafeStringMixin):
     """Validated bio (future feature)"""
     bio: str = Field(..., max_length=500)
     
-    @validator('bio')
+    @field_validator('bio')
+    @classmethod
     def clean_bio(cls, v):
         v = cls.validate_no_script(v)
         return cls.sanitize_html(v)
@@ -86,7 +90,8 @@ class ListNameSchema(BaseModel, SafeStringMixin):
     """Validated custom list name (future feature)"""
     name: str = Field(..., min_length=1, max_length=100)
     
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def clean_name(cls, v):
         return cls.validate_no_script(v)
 

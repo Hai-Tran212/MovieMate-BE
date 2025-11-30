@@ -19,7 +19,7 @@ from app.utils.dependencies import get_current_user
 from app.models.user import User
 from app.models.movie_cache import MovieCache
 from app.services.background_jobs import background_jobs
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 router = APIRouter(prefix="/api/admin", tags=["Admin - Background Jobs"])
 
@@ -42,7 +42,7 @@ async def trigger_trending_update(
         return {
             "message": "Trending movies update triggered successfully",
             "job": "update_trending",
-            "triggered_at": datetime.now().isoformat(),
+            "triggered_at": datetime.now(timezone.utc).isoformat(),
             "triggered_by": current_user.email
         }
     except Exception as e:
@@ -70,7 +70,7 @@ async def trigger_popular_update(
         return {
             "message": "Popular movies update triggered successfully",
             "job": "update_popular",
-            "triggered_at": datetime.now().isoformat(),
+            "triggered_at": datetime.now(timezone.utc).isoformat(),
             "triggered_by": current_user.email
         }
     except Exception as e:
@@ -97,7 +97,7 @@ async def trigger_cache_cleanup(
         return {
             "message": "Cache cleanup triggered successfully",
             "job": "cleanup_cache",
-            "triggered_at": datetime.now().isoformat(),
+            "triggered_at": datetime.now(timezone.utc).isoformat(),
             "triggered_by": current_user.email
         }
     except Exception as e:
@@ -129,7 +129,7 @@ async def get_jobs_status(
             "scheduler_running": stats['scheduler_running'],
             "timezone": stats['timezone'],
             "jobs": stats['jobs'],
-            "checked_at": datetime.now().isoformat()
+            "checked_at": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         raise HTTPException(
@@ -166,7 +166,7 @@ async def pause_job(
         return {
             "message": f"Job '{job_id}' paused successfully",
             "job_id": job_id,
-            "paused_at": datetime.now().isoformat(),
+            "paused_at": datetime.now(timezone.utc).isoformat(),
             "paused_by": current_user.email
         }
     except Exception as e:
@@ -204,7 +204,7 @@ async def resume_job(
         return {
             "message": f"Job '{job_id}' resumed successfully",
             "job_id": job_id,
-            "resumed_at": datetime.now().isoformat(),
+            "resumed_at": datetime.now(timezone.utc).isoformat(),
             "resumed_by": current_user.email
         }
     except Exception as e:
@@ -235,7 +235,7 @@ async def get_cache_statistics(
         total_movies = db.query(MovieCache).count()
         
         # Recent caches
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         last_24h = db.query(MovieCache).filter(
             MovieCache.cached_at > now - timedelta(hours=24)
         ).count()
@@ -279,7 +279,7 @@ async def get_cache_statistics(
                 }
                 for movie in top_rated
             ],
-            "checked_at": datetime.now().isoformat()
+            "checked_at": datetime.now(timezone.utc).isoformat()
         }
         
     except Exception as e:
@@ -318,7 +318,7 @@ async def clear_all_cache(
         return {
             "message": "Cache cleared successfully",
             "deleted_count": count,
-            "cleared_at": datetime.now().isoformat(),
+            "cleared_at": datetime.now(timezone.utc).isoformat(),
             "cleared_by": current_user.email,
             "warning": "All movie cache data has been deleted. Run populate jobs to rebuild."
         }

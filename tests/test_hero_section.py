@@ -10,7 +10,7 @@ III. Security & Authorization Tests
 """
 import pytest
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.models.user import User
 from app.models.rating import Rating
@@ -104,7 +104,7 @@ def movie_cache_data(db_session):
             crew=[600 + i],
             vote_average=6.0 + (i * 0.04),
             popularity=200.0 - i,
-            cached_at=datetime.utcnow()
+            cached_at=datetime.now(timezone.utc)
         )
         db_session.add(entry)
         cache_entries.append(entry)

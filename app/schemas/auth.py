@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, ValidationInfo
 from datetime import datetime
 import re
 
@@ -40,9 +40,7 @@ class UserResponse(BaseModel):
     name: str
     is_active: bool
     created_at: datetime
-    # Configuration to work with ORM models
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -61,7 +59,7 @@ class ResetPasswordRequest(BaseModel):
 
     @field_validator('confirm_password')
     @classmethod
-    def confirm_matches(cls, v, info):
+    def confirm_matches(cls, v, info: ValidationInfo):
         new_password = info.data.get('new_password')
         if new_password and v != new_password:
             raise ValueError('Passwords do not match')

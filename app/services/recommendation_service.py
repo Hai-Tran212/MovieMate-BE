@@ -13,6 +13,8 @@ from app.models.rating import Rating
 from app.services.tmdb_service import TMDBService
 from datetime import datetime, timedelta
 import logging
+import zlib
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +36,12 @@ class RecommendationService:
     MIN_CACHE_SIZE = 50             # Minimum movies needed for KNN
     DEFAULT_LIMIT = 20              # Default number of recommendations
     
-    # Feature vector dimensions (for easy modification)
-    GENRE_DIM = 5
-    KEYWORD_DIM = 10
-    CAST_DIM = 5
-    CREW_DIM = 3
+    # Feature vector hashed bucket dimensions
+    GENRE_BUCKETS = 32
+    KEYWORD_BUCKETS = 96
+    CAST_BUCKETS = 96
+    CREW_BUCKETS = 32
+    FEATURE_VECTOR_SIZE = GENRE_BUCKETS + KEYWORD_BUCKETS + CAST_BUCKETS + CREW_BUCKETS
     
     # Weights for similarity calculation (can be tuned)
     GENRE_WEIGHT = 0.4
@@ -206,63 +209,103 @@ class RecommendationService:
             logger.info(f"Successfully cached movie {movie_id}: {new_cache.title}")
             return new_cache
             
+        except HTTPException as http_err:
+            logger.warning(f"TMDB fetch failed for movie {movie_id}: {http_err.detail}")
+            db.rollback()
+            return None
         except Exception as e:
             logger.error(f"Error fetching/caching movie {movie_id}: {str(e)}")
             db.rollback()
             return None
 
     @staticmethod
+    def _stable_hash(value: Any) -> int:
+        """Create a deterministic hash for any value."""
+        if value is None:
+            value = ""
+        return zlib.crc32(str(value).encode("utf-8"))
+
+    @staticmethod
+    def _encode_sparse_feature(
+        vector: np.ndarray,
+        values: Optional[List[Any]],
+        bucket_count: int,
+        offset: int,
+        weight: float
+    ) -> None:
+        """Project arbitrary IDs into a fixed-size bucketed representation."""
+        if not values:
+            return
+
+        normalized_values = []
+        for val in values:
+            if val is None:
+                continue
+            normalized_values.append(val if isinstance(val, str) else str(val))
+
+        if not normalized_values:
+            return
+
+        unique_values = list(dict.fromkeys(normalized_values))
+        norm = weight / len(unique_values)
+
+        for val in unique_values:
+            bucket = RecommendationService._stable_hash(val) % bucket_count
+            vector[offset + bucket] += norm
+
+    @staticmethod
     def create_feature_vector(movie: MovieCache) -> np.ndarray:
         """
-        Create numerical feature vector from movie attributes
-        
-        Feature Vector Structure:
-        [genre_1, genre_2, ..., genre_5,      # 5 genre slots
-         keyword_1, ..., keyword_10,           # 10 keyword slots
-         cast_1, ..., cast_5,                  # 5 cast slots
-         crew_1, crew_2, crew_3]               # 3 crew slots
-        Total: 23 dimensions
-        
-        Padding/Truncation:
-        - If movie has fewer features, pad with 0s
-        - If movie has more features, truncate to limit
-        
-        Args:
-            movie: MovieCache object
-            
-        Returns:
-            numpy array of shape (23,)
+        Create numerical feature vector from movie attributes using hashed multi-hot encoding.
+
+        Each attribute family (genres / keywords / cast / crew) is projected into a fixed number
+        of buckets so vector size remains constant while still capturing set overlap semantics.
         """
-        features = []
+        vector = np.zeros(RecommendationService.FEATURE_VECTOR_SIZE, dtype=float)
+        offset = 0
 
-        def _to_list(val):
-            return list(val) if isinstance(val, (list, tuple)) else []
+        RecommendationService._encode_sparse_feature(
+            vector=vector,
+            values=movie.genres if isinstance(movie.genres, list) else [],
+            bucket_count=RecommendationService.GENRE_BUCKETS,
+            offset=offset,
+            weight=RecommendationService.GENRE_WEIGHT
+        )
+        offset += RecommendationService.GENRE_BUCKETS
 
-        # Genres (pad or truncate to GENRE_DIM)
-        raw_genres = _to_list(movie.genres)
-        genre_features = raw_genres[:RecommendationService.GENRE_DIM]
-        genre_features += [0] * (RecommendationService.GENRE_DIM - len(genre_features))
-        features.extend(genre_features)
+        keyword_source = None
+        if isinstance(movie.keyword_names, list) and movie.keyword_names:
+            keyword_source = movie.keyword_names
+        elif isinstance(movie.keywords, list):
+            keyword_source = movie.keywords
 
-        # Keywords (pad or truncate to KEYWORD_DIM)
-        raw_keywords = _to_list(movie.keywords)
-        keyword_features = raw_keywords[:RecommendationService.KEYWORD_DIM]
-        keyword_features += [0] * (RecommendationService.KEYWORD_DIM - len(keyword_features))
-        features.extend(keyword_features)
+        RecommendationService._encode_sparse_feature(
+            vector=vector,
+            values=keyword_source,
+            bucket_count=RecommendationService.KEYWORD_BUCKETS,
+            offset=offset,
+            weight=RecommendationService.KEYWORD_WEIGHT
+        )
+        offset += RecommendationService.KEYWORD_BUCKETS
 
-        # Cast (pad or truncate to CAST_DIM)
-        raw_cast = _to_list(movie.cast)
-        cast_features = raw_cast[:RecommendationService.CAST_DIM]
-        cast_features += [0] * (RecommendationService.CAST_DIM - len(cast_features))
-        features.extend(cast_features)
+        RecommendationService._encode_sparse_feature(
+            vector=vector,
+            values=movie.cast if isinstance(movie.cast, list) else [],
+            bucket_count=RecommendationService.CAST_BUCKETS,
+            offset=offset,
+            weight=RecommendationService.CAST_WEIGHT
+        )
+        offset += RecommendationService.CAST_BUCKETS
 
-        # Crew (pad or truncate to CREW_DIM)
-        raw_crew = _to_list(movie.crew)
-        crew_features = raw_crew[:RecommendationService.CREW_DIM]
-        crew_features += [0] * (RecommendationService.CREW_DIM - len(crew_features))
-        features.extend(crew_features)
+        RecommendationService._encode_sparse_feature(
+            vector=vector,
+            values=movie.crew if isinstance(movie.crew, list) else [],
+            bucket_count=RecommendationService.CREW_BUCKETS,
+            offset=offset,
+            weight=RecommendationService.CREW_WEIGHT
+        )
 
-        return np.array(features, dtype=float)
+        return vector
 
     @staticmethod
     def _get_feature_vector(movie: MovieCache) -> np.ndarray:
