@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from fastapi import HTTPException, status
 from typing import List, Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.models.rating import Rating
 from app.models.movie import Movie
@@ -167,7 +167,7 @@ class RatingService:
         if existing_rating:
             # Update existing rating
             existing_rating.rating = rating_data.rating
-            existing_rating.updated_at = datetime.utcnow()
+            existing_rating.updated_at = datetime.now(timezone.utc)
             db.commit()
             db.refresh(existing_rating)
             

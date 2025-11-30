@@ -59,7 +59,7 @@ async def get_similar_movies(
 
 @router.get("/by-genre", response_model=List[Dict])
 async def get_by_genre(
-    genre_ids: str = Query(..., regex="^[0-9,]+$", description="Comma-separated genre IDs"),
+    genre_ids: str = Query(..., pattern="^[0-9,]+$", description="Comma-separated genre IDs"),
     limit: int = Query(20, ge=1, le=50),
     min_rating: float = Query(8.0, ge=0, le=10, description="Minimum vote average")
 ):

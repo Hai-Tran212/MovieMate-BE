@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from fastapi import HTTPException, status
 from typing import List, Optional, cast
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.models.watchlist import Watchlist, CustomList, CustomListItem
 from app.models.movie import Movie
@@ -162,7 +162,7 @@ class WatchlistService:
         if update_data.watched is not None:
             item.watched = update_data.watched  # type: ignore
             if update_data.watched:
-                item.watched_at = datetime.utcnow()  # type: ignore
+                item.watched_at = datetime.now(timezone.utc)  # type: ignore
             else:
                 item.watched_at = None  # type: ignore
 

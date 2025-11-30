@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from typing import Optional, List
 
@@ -25,8 +25,7 @@ class WatchlistResponse(BaseModel):
     added_at: datetime
     watched_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True  # Pydantic v2 (was orm_mode in v1)
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WatchlistStats(BaseModel):
@@ -66,8 +65,7 @@ class CustomListItemResponse(BaseModel):
     added_at: datetime
     notes: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CustomListResponse(BaseModel):
@@ -81,10 +79,9 @@ class CustomListResponse(BaseModel):
     updated_at: datetime
     items_count: Optional[int] = None  # Will be populated via query
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CustomListDetailResponse(CustomListResponse):
     """Schema for custom list with items"""
-    list_items: List[CustomListItemResponse] = []
+    list_items: List[CustomListItemResponse] = Field(default_factory=list)
