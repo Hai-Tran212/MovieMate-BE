@@ -33,7 +33,7 @@ class RecommendationService:
     
     # Configuration constants (easy to modify)
     CACHE_EXPIRY_DAYS = 7           # Refresh cached data after 7 days
-    MIN_CACHE_SIZE = 50             # Minimum movies needed for KNN
+    MIN_CACHE_SIZE = 30             # Minimum movies needed for KNN (reduced for production)
     DEFAULT_LIMIT = 20              # Default number of recommendations
     
     # Feature vector hashed bucket dimensions
@@ -814,6 +814,50 @@ class RecommendationService:
             
             diverse_results.append(movie)
         
+        # Fallback: If not enough recommendations, lower thresholds and add more
+        if len(diverse_results) < limit:
+            logger.info(f"Mood results insufficient ({len(diverse_results)}), adding fallback movies")
+            
+            # Get IDs already in results
+            existing_ids = {m['tmdb_id'] for m in diverse_results}
+            
+            # Try with lower minimum rating (reduce by 0.5)
+            fallback_query = db.query(MovieCache).filter(
+                MovieCache.vote_average >= max(5.5, min_rating_for_mood - 0.5),
+                MovieCache.genres.isnot(None),
+                ~MovieCache.tmdb_id.in_(rated_movie_ids | existing_ids)
+            ).order_by(MovieCache.popularity.desc())
+            
+            fallback_movies = fallback_query.limit(limit * 2).all()
+            
+            for movie in fallback_movies:
+                if len(diverse_results) >= limit:
+                    break
+                
+                movie_genres = set(movie.genres) if isinstance(movie.genres, list) else set()
+                
+                # Check if at least one genre matches mood
+                if not movie_genres.intersection(preferred_genres):
+                    continue
+                
+                # Skip excluded genres
+                if movie_genres.intersection(set(excluded_genres)):
+                    continue
+                
+                diverse_results.append({
+                    "tmdb_id": movie.tmdb_id,
+                    "title": movie.title,
+                    "poster_path": movie.poster_path,
+                    "backdrop_path": movie.backdrop_path,
+                    "vote_average": movie.vote_average,
+                    "popularity": movie.popularity,
+                    "release_date": movie.release_date,
+                    "overview": movie.overview,
+                    "genres": movie.genres,
+                    "mood_score": 0.5,  # Lower score for fallback
+                    "genre_overlap": len(movie_genres.intersection(preferred_genres)),
+                })
+        
         logger.info(f"Mood recommendations for '{mood}': {len(diverse_results)} movies")
         return diverse_results
 
@@ -958,8 +1002,12 @@ class RecommendationService:
                 ).order_by(Rating.rating.desc()).limit(10).all()
                 
                 if user_ratings:
-                    # Get recommendations based on highly rated movies
-                    high_rated = [r for r in user_ratings if r.rating >= 8.0]
+                    # Get recommendations based on highly rated movies (lowered threshold for more results)
+                    high_rated = [r for r in user_ratings if r.rating >= 7.0]
+                    if not high_rated and user_ratings:
+                        # If no movies rated >= 7.0, use top 3 highest rated movies
+                        high_rated = sorted(user_ratings, key=lambda r: r.rating, reverse=True)[:3]
+                    
                     if high_rated:
                         # Use best rated movie for content similarity
                         content_recs = RecommendationService.get_similar_movies(
@@ -1073,17 +1121,49 @@ class RecommendationService:
             results = list(movie_scores.values())
             results.sort(key=lambda x: x['hybrid_score'], reverse=True)
             
-            # Remove None/invalid entries and limit results
+            # Get user's rated movie IDs to exclude them from recommendations
+            user_rated_movie_ids = set()
+            user_ratings_for_exclusion = db.query(Rating).filter(Rating.user_id == user_id).all()
+            for r in user_ratings_for_exclusion:
+                user_rated_movie_ids.add(r.movie_id)
+            
+            # Remove None/invalid entries, exclude rated movies, and limit results
             final_results = []
             seen_ids = set()
             
             for rec in results:
                 movie_key = rec.get('id') or rec.get('tmdb_id')
-                if movie_key and movie_key not in seen_ids:
+                # Skip if already seen or user has already rated this movie
+                if movie_key and movie_key not in seen_ids and movie_key not in user_rated_movie_ids:
                     seen_ids.add(movie_key)
                     final_results.append(rec)
                     if len(final_results) >= limit:
                         break
+            
+            # Fallback: If not enough recommendations, add popular movies user hasn't rated
+            if len(final_results) < limit:
+                logger.info(f"Hybrid results insufficient ({len(final_results)}), adding popular fallback")
+                popular_fallback = db.query(MovieCache).filter(
+                    MovieCache.vote_average >= 7.0,
+                    ~MovieCache.tmdb_id.in_(user_rated_movie_ids | seen_ids)
+                ).order_by(
+                    MovieCache.popularity.desc()
+                ).limit(limit - len(final_results)).all()
+                
+                for m in popular_fallback:
+                    final_results.append({
+                        'id': m.id,
+                        'tmdb_id': m.tmdb_id,
+                        'title': m.title,
+                        'content_score': 0.5,
+                        'collab_score': 0.0,
+                        'hybrid_score': 0.35,  # Lower score for fallback
+                        'vote_average': float(m.vote_average) if m.vote_average else 0.0,
+                        'genres': m.genres or [],
+                        'release_date': m.release_date,
+                        'poster_path': m.poster_path,
+                        'overview': m.overview
+                    })
             
             logger.info(
                 f"Hybrid recommendations: {len(final_results)} movies "
