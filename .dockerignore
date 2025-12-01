@@ -1,0 +1,145 @@
+# MovieMate Backend - Docker Ignore File
+# Prevents unnecessary files from being copied to Docker build context
+
+# ===========================================
+# Python
+# ===========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ===========================================
+# Virtual Environments
+# ===========================================
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+Pipfile.lock
+
+# ===========================================
+# IDE and Editor
+# ===========================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ===========================================
+# Testing
+# ===========================================
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.hypothesis/
+tests/
+test_*.py
+*_test.py
+conftest.py
+
+# ===========================================
+# Jupyter Notebooks
+# ===========================================
+.ipynb_checkpoints
+*.ipynb
+
+# ===========================================
+# Docker
+# ===========================================
+Dockerfile
+dockerfile
+docker-compose*.yml
+.docker/
+.dockerignore
+
+# ===========================================
+# Git
+# ===========================================
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# ===========================================
+# Documentation
+# ===========================================
+docs/
+*.md
+*.rst
+*.txt
+!requirements.txt
+LICENSE
+CHANGELOG
+
+# ===========================================
+# OS Files
+# ===========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.bak
+*.tmp
+*.temp
+
+# ===========================================
+# Logs and Databases
+# ===========================================
+*.log
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+logs/
+
+# ===========================================
+# Misc
+# ===========================================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+cython_debug/
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
